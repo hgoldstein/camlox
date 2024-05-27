@@ -1,3 +1,5 @@
+let trace_execution = true
+
 let simple_instruction name offset =
   Printf.printf "%s\n" name;
   offset + 1
@@ -21,6 +23,7 @@ let disassemble_instruction (c : Chunk.t) (offset : int) : int =
   match Chunk.OpCode.of_byte (Vector.at ~vec:c.code ~index:offset) with
   | Ok Chunk.OpCode.Constant -> constant_instruction c "OP_CONSTANT" offset
   | Ok Chunk.OpCode.Return -> simple_instruction "OP_RETURN" offset
+  | Ok Chunk.OpCode.Negate -> simple_instruction "OP_NEGATE" offset
   | Error c ->
       Printf.printf "Unknown opcode %d" (Char.code c);
       offset + 1

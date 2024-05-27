@@ -1,11 +1,15 @@
 module OpCode = struct
-  type t = Return | Constant
+  type t = Return | Constant | Negate
 
-  let to_byte : t -> char = function Return -> '\x00' | Constant -> '\x01'
+  let to_byte : t -> char = function
+    | Return -> '\x00'
+    | Constant -> '\x01'
+    | Negate -> '\x02'
 
   let of_byte : char -> (t, char) result = function
     | '\x00' -> Ok Return
     | '\x01' -> Ok Constant
+    | '\x02' -> Ok Negate
     | c -> Error c
 end
 
