@@ -18,12 +18,17 @@ let print_line_number (c : Chunk.t) (offset : int) =
   else Printf.printf "%4d " (f ~index:offset)
 
 let disassemble_instruction (c : Chunk.t) (offset : int) : int =
+  let module Op = Chunk.OpCode in
   Printf.printf "%04d " offset;
   print_line_number c offset;
-  match Chunk.OpCode.of_byte (Vector.at ~vec:c.code ~index:offset) with
-  | Ok Chunk.OpCode.Constant -> constant_instruction c "OP_CONSTANT" offset
-  | Ok Chunk.OpCode.Return -> simple_instruction "OP_RETURN" offset
-  | Ok Chunk.OpCode.Negate -> simple_instruction "OP_NEGATE" offset
+  match Op.of_byte (Vector.at ~vec:c.code ~index:offset) with
+  | Ok Op.Constant -> constant_instruction c "OP_CONSTANT" offset
+  | Ok Op.Return -> simple_instruction "OP_RETURN" offset
+  | Ok Op.Negate -> simple_instruction "OP_NEGATE" offset
+  | Ok Op.Add -> simple_instruction "OP_ADD" offset
+  | Ok Op.Subtract -> simple_instruction "OP_SUBTRACT" offset
+  | Ok Op.Multiply -> simple_instruction "OP_MULTIPLY" offset
+  | Ok Op.Divide -> simple_instruction "OP_DIVIDE" offset
   | Error c ->
       Printf.printf "Unknown opcode %d" (Char.code c);
       offset + 1
