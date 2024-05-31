@@ -1,2 +1,4 @@
 (library
- (name camlox))
+ (name camlox)
+ (preprocess
+  (pps ppx_deriving.show)))

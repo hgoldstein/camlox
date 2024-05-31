@@ -1,0 +1,44 @@
+type kind =
+  | LeftParen
+  | RightParen
+  | LeftBrace
+  | RightBrace
+  | Comma
+  | Dot
+  | Minus
+  | Plus
+  | Semicolon
+  | Slash
+  | Star
+  | Bang
+  | BangEqual
+  | Equal
+  | EqualEqual
+  | Greater
+  | GreaterEqual
+  | Less
+  | LessEqual
+  | Identifier
+  | String
+  | Number
+  | And
+  | Class
+  | Else
+  | False
+  | For
+  | Fun
+  | If
+  | Nil
+  | Or
+  | Print
+  | Return
+  | Super
+  | This
+  | True
+  | Var
+  | While
+  | Error
+  | Eof
+[@@deriving show]
+
+type t = { content : string; kind : kind; line : int }

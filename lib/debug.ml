@@ -13,7 +13,7 @@ let constant_instruction (chunk : Chunk.t) name offset =
 
 let print_line_number (c : Chunk.t) (offset : int) =
   let f = Vector.at ~vec:c.lines in
-  if offset > 0 && f ~index:offset == f ~index:(offset - 1) then
+  if offset > 0 && f ~index:offset = f ~index:(offset - 1) then
     Printf.printf "   | "
   else Printf.printf "%4d " (f ~index:offset)
 

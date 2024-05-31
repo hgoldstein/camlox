@@ -69,5 +69,9 @@ let rec run vm =
       Printf.eprintf "Unknown bytecode instruction %d" (Char.code c);
       exit 1
 
-let interpret (chunk : Chunk.t) : (unit, error) result =
+let interpret_chunk (chunk : Chunk.t) : (unit, error) result =
   run @@ { chunk; ip = 0; stack = [] }
+
+let interpret source =
+  let _ = Compiler.compile source in
+  Ok ()
