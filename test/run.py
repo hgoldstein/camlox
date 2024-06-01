@@ -32,7 +32,12 @@ class NoOutputFile(object):
     pass
 
 
-Result = NoOutputFile | OutputMismatch | None
+@dataclass
+class Promoted(object):
+    pass
+
+
+Result = NoOutputFile | OutputMismatch | Promoted | None
 
 
 @dataclass
@@ -80,7 +85,7 @@ class Test:
 
         if promote:
             shutil.copy(self.output(), self.expect())
-            return
+            return Promoted()
 
         if not self.has_diff():
             return
@@ -100,7 +105,9 @@ def run_tests(promote: bool) -> None:
         log.info(f"Running `{test.name()}'")
         match test.run(promote):
             case None:
-                log.info(f"`{test.name()}' passed!")
+                log.info(f"`{test.name()}' passed")
+            case Promoted():
+                log.info(f"`{test.name()}' promoted output to expected.")
             case OutputMismatch():
                 log.error(f"`{test.name()}' failed, output mismatch:")
                 test.print_diff()

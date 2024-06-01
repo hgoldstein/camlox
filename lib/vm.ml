@@ -1,5 +1,4 @@
 type t = { chunk : Chunk.t; mutable ip : int; mutable stack : Value.t list }
-type error = CompileError | RuntimeError
 
 let read_byte vm =
   let index = vm.ip in
@@ -38,8 +37,8 @@ let binary_op vm f =
   ()
 
 let rec run vm =
-  if Debug.trace_execution then (
-    ignore @@ print_stack vm;
+  if Debug.on () then (
+    print_stack vm;
     ignore @@ Debug.disassemble_instruction vm.chunk vm.ip);
   let module Op = Chunk.OpCode in
   match Op.of_byte @@ read_byte vm with
@@ -69,9 +68,10 @@ let rec run vm =
       Printf.eprintf "Unknown bytecode instruction %d" (Char.code c);
       exit 1
 
-let interpret_chunk (chunk : Chunk.t) : (unit, error) result =
+let interpret_chunk (chunk : Chunk.t) : (unit, Err.t) result =
   run @@ { chunk; ip = 0; stack = [] }
 
 let interpret source =
-  let _ = Compiler.compile source in
-  Ok ()
+  match Compiler.compile source with
+  | Error e -> Error e
+  | Ok chunk -> interpret_chunk chunk

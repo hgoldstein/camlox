@@ -5,12 +5,13 @@ description: "A longer description"
 maintainer: ["Hunter Goldstein"]
 authors: ["Hunter Goldstein"]
 license: "LICENSE"
-tags: ["topics" "to describe" "your" "project"]
 homepage: "https://github.com/hgoldstein/camlox"
 bug-reports: "https://github.com/hgoldstein/camlox/issues"
 depends: [
   "ocaml"
   "dune" {>= "3.15"}
+  "core"
+  "core_unix"
   "odoc" {with-doc}
 ]
 build: [

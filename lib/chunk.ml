@@ -34,6 +34,10 @@ let make () =
     lines = Vector.make ~size:0 ~elem:(-1);
   }
 
+let write_byte ~chunk ~line ~byte =
+  Vector.write ~vec:chunk.code ~data:byte;
+  Vector.write ~vec:chunk.lines ~data:line
+
 let write_op ~chunk ~line ~opcode =
   Vector.write ~vec:chunk.code ~data:(OpCode.to_byte opcode);
   Vector.write ~vec:chunk.lines ~data:line

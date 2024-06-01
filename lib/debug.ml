@@ -1,4 +1,6 @@
-let trace_execution = true
+let state = ref false
+let on () = !state
+let enable () = state := true
 
 let simple_instruction name offset =
   Printf.printf "%s\n" name;

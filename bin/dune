@@ -1,4 +1,9 @@
 (executable
  (public_name camlox)
  (name main)
- (libraries camlox))
+ (libraries
+  camlox
+  core
+  core_unix
+  core_unix.filename_unix
+  core_unix.command_unix))
