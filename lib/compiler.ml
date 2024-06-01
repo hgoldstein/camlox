@@ -157,6 +157,12 @@ and literal parser =
   | Token.Nil -> emit_opcode parser Chunk.OpCode.Nil
   | _ -> assert false
 
+and string_ parser =
+  let v = parser.previous.content in
+  emit_constant parser
+  @@ Value.Object
+       (Value.String { chars = String.sub v 1 (String.length v - 2) })
+
 and get_rule : Token.kind -> rule =
   let open Precedence in
   let make_rule ?(prefix = None) ?(infix = None) ?(prec = NoPrec) () =
@@ -180,6 +186,7 @@ and get_rule : Token.kind -> rule =
   | Token.GreaterEqual -> make_rule ~infix:(Some binary) ~prec:Comparison ()
   | Token.Less -> make_rule ~infix:(Some binary) ~prec:Comparison ()
   | Token.LessEqual -> make_rule ~infix:(Some binary) ~prec:Comparison ()
+  | Token.String -> make_rule ~prefix:(Some string_) ()
   | _ -> make_rule ()
 
 let end_compiler p =
