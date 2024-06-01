@@ -29,7 +29,7 @@ class OutputMismatch(object):
 
 @dataclass
 class NoOutputFile(object):
-    pass
+    output: str
 
 
 @dataclass
@@ -67,14 +67,14 @@ class Test:
         return str(self.file.relative_to(ROOT))
 
     def run(self, promote: bool) -> Result:
-        if not self.expect().exists() and not promote:
-            return NoOutputFile()
-
         proc = subprocess.run(
             ["dune", "exec", "--display=quiet", "camlox", self.file],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
         )
+
+        if not self.expect().exists() and not promote:
+            return NoOutputFile(output=proc.stdout.decode())
 
         out = proc.stdout.decode()
         if proc.returncode != 0:
@@ -103,7 +103,7 @@ def tests() -> Generator[Test, None, None]:
 def run_tests(promote: bool) -> None:
     for test in tests():
         log.info(f"Running `{test.name()}'")
-        match test.run(promote):
+        match r := test.run(promote):
             case None:
                 log.info(f"`{test.name()}' passed")
             case Promoted():
@@ -113,6 +113,7 @@ def run_tests(promote: bool) -> None:
                 test.print_diff()
             case NoOutputFile():
                 log.error(f"`{test.name()}' failed, no output file")
+                log.info(f"`{test.name()}' output:\n{r.output}")
 
 
 def main() -> None:

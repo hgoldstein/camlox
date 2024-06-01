@@ -109,6 +109,7 @@ and unary p =
   parse_precedence p Precedence.Unary;
   match op with
   | Token.Minus -> emit_opcode p Chunk.OpCode.Negate
+  | Token.Bang -> emit_opcode p Chunk.OpCode.Not
   | _ -> assert false
 
 and binary p =
@@ -116,13 +117,24 @@ and binary p =
   let rule = get_rule op in
   parse_precedence p @@ Precedence.next rule.precedence;
   let open Chunk.OpCode in
-  emit_opcode p
-  @@
+  let e = emit_opcode p in
   match op with
-  | Token.Plus -> Add
-  | Token.Minus -> Subtract
-  | Token.Star -> Multiply
-  | Token.Slash -> Divide
+  | Token.BangEqual ->
+      e Equal;
+      e Not
+  | Token.EqualEqual -> e Equal
+  | Token.Greater -> e Greater
+  | Token.GreaterEqual ->
+      e Less;
+      e Not
+  | Token.Less -> e Less
+  | Token.LessEqual ->
+      e Greater;
+      e Not
+  | Token.Plus -> e Add
+  | Token.Minus -> e Subtract
+  | Token.Star -> e Multiply
+  | Token.Slash -> e Divide
   | _ -> assert false
 
 and parse_precedence p prec =
@@ -138,6 +150,13 @@ and parse_precedence p prec =
     | None -> assert false
   done
 
+and literal parser =
+  match parser.previous.kind with
+  | Token.False -> emit_opcode parser Chunk.OpCode.False
+  | Token.True -> emit_opcode parser Chunk.OpCode.True
+  | Token.Nil -> emit_opcode parser Chunk.OpCode.Nil
+  | _ -> assert false
+
 and get_rule : Token.kind -> rule =
   let open Precedence in
   let make_rule ?(prefix = None) ?(infix = None) ?(prec = NoPrec) () =
@@ -151,11 +170,21 @@ and get_rule : Token.kind -> rule =
   | Token.Slash -> make_rule ~infix:(Some binary) ~prec:Factor ()
   | Token.Star -> make_rule ~infix:(Some binary) ~prec:Factor ()
   | Token.Number -> make_rule ~prefix:(Some number) ()
+  | Token.False -> make_rule ~prefix:(Some literal) ()
+  | Token.True -> make_rule ~prefix:(Some literal) ()
+  | Token.Nil -> make_rule ~prefix:(Some literal) ()
+  | Token.Bang -> make_rule ~prefix:(Some unary) ()
+  | Token.BangEqual -> make_rule ~infix:(Some binary) ~prec:Equality ()
+  | Token.EqualEqual -> make_rule ~infix:(Some binary) ~prec:Equality ()
+  | Token.Greater -> make_rule ~infix:(Some binary) ~prec:Comparison ()
+  | Token.GreaterEqual -> make_rule ~infix:(Some binary) ~prec:Comparison ()
+  | Token.Less -> make_rule ~infix:(Some binary) ~prec:Comparison ()
+  | Token.LessEqual -> make_rule ~infix:(Some binary) ~prec:Comparison ()
   | _ -> make_rule ()
 
 let end_compiler p =
   emit_opcode p Chunk.OpCode.Return;
-  if Debug.on () && not p.had_error then Debug.disassemble_chunk p.chunk "code"
+  if Dbg.on () && not p.had_error then Dbg.disassemble_chunk p.chunk "code"
 
 let compile (source : string) : (Chunk.t, Err.t) result =
   let p : parser =

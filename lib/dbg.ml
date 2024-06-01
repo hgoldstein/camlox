@@ -31,6 +31,13 @@ let disassemble_instruction (c : Chunk.t) (offset : int) : int =
   | Ok Op.Subtract -> simple_instruction "OP_SUBTRACT" offset
   | Ok Op.Multiply -> simple_instruction "OP_MULTIPLY" offset
   | Ok Op.Divide -> simple_instruction "OP_DIVIDE" offset
+  | Ok Op.Nil -> simple_instruction "OP_NIL" offset
+  | Ok Op.True -> simple_instruction "OP_TRUE" offset
+  | Ok Op.False -> simple_instruction "OP_FALSE" offset
+  | Ok Op.Not -> simple_instruction "OP_NOT" offset
+  | Ok Op.Less -> simple_instruction "OP_LESS" offset
+  | Ok Op.Greater -> simple_instruction "OP_GREATER" offset
+  | Ok Op.Equal -> simple_instruction "OP_EQUAL" offset
   | Error c ->
       Printf.printf "Unknown opcode %d" (Char.code c);
       offset + 1

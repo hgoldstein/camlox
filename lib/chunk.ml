@@ -1,5 +1,19 @@
 module OpCode = struct
-  type t = Return | Constant | Negate | Add | Subtract | Multiply | Divide
+  type t =
+    | Return
+    | Constant
+    | Negate
+    | Add
+    | Subtract
+    | Multiply
+    | Divide
+    | Nil
+    | True
+    | False
+    | Not
+    | Equal
+    | Greater
+    | Less
 
   let to_byte : t -> char = function
     | Return -> '\x00'
@@ -9,6 +23,13 @@ module OpCode = struct
     | Subtract -> '\x04'
     | Multiply -> '\x05'
     | Divide -> '\x06'
+    | Nil -> '\x07'
+    | True -> '\x08'
+    | False -> '\x09'
+    | Not -> '\x10'
+    | Equal -> '\x11'
+    | Greater -> '\x12'
+    | Less -> '\x13'
 
   let of_byte : char -> (t, char) result = function
     | '\x00' -> Ok Return
@@ -18,6 +39,13 @@ module OpCode = struct
     | '\x04' -> Ok Subtract
     | '\x05' -> Ok Multiply
     | '\x06' -> Ok Divide
+    | '\x07' -> Ok Nil
+    | '\x08' -> Ok True
+    | '\x09' -> Ok False
+    | '\x10' -> Ok Not
+    | '\x11' -> Ok Equal
+    | '\x12' -> Ok Greater
+    | '\x13' -> Ok Less
     | c -> Error c
 end
 

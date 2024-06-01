@@ -26,7 +26,7 @@ let param =
     flag ~aliases:[ "v" ] "verbose" no_arg ~doc:"Turn on debug exec"
   in
   fun () ->
-    if verbose then Debug.enable ();
+    if verbose then Dbg.enable ();
     match file with None -> repl () | Some f -> run_file f
 
 let () =
