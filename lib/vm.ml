@@ -1,6 +1,12 @@
 open Core
 
-type t = { chunk : Chunk.t; mutable ip : int; mutable stack : Value.t list }
+type t = {
+  chunk : Chunk.t;
+  mutable ip : int;
+  mutable stack : Value.t list;
+  strings : String_arena.t;
+}
+
 type cycle_result = [ `Ok | `Error of Err.t | `Return ]
 
 let read_byte vm =
@@ -46,18 +52,14 @@ let rec run vm : (unit, Err.t) result =
   in
   let res, stack =
     match (opcode, vm.stack) with
-    | Op.Return, v :: vs ->
-        Value.print v;
-        Printf.printf "\n";
-        (`Return, vs)
+    | Op.Return, vs -> (`Return, vs)
     | Op.Constant, vs -> (`Ok, read_constant vm :: vs)
     | Op.Negate, Float f :: vs -> (`Ok, Value.Float (f *. -1.0) :: vs)
     | Op.Add, Float b :: Float a :: stack -> (`Ok, Float (a +. b) :: stack)
-    | ( Op.Add,
-        Object (String { chars = chars_b })
-        :: Object (String { chars = chars_a })
-        :: stack ) ->
-        (`Ok, Object (String { chars = chars_a ^ chars_b }) :: stack)
+    | Op.Add, Object (String b) :: Object (String a) :: stack ->
+        let a_chars = String_val.get a in
+        let b_chars = String_val.get b in
+        (`Ok, String_arena.get vm.strings (a_chars ^ b_chars) :: stack)
     | Op.Subtract, Float b :: Float a :: stack -> (`Ok, Float (a -. b) :: stack)
     | Op.Divide, Float b :: Float a :: stack -> (`Ok, Float (a /. b) :: stack)
     | Op.Multiply, Float b :: Float a :: stack -> (`Ok, Float (a *. b) :: stack)
@@ -70,7 +72,11 @@ let rec run vm : (unit, Err.t) result =
         (`Ok, Value.Bool (Float.compare a b > 0) :: stack)
     | Op.Less, Float b :: Float a :: stack ->
         (`Ok, Value.Bool (Float.compare a b < 0) :: stack)
-    | (Op.Negate | Op.Not | Op.Return), [] ->
+    | Op.Print, v :: stack ->
+        Value.print_line v;
+        (`Ok, stack)
+    (* Error cases *)
+    | (Op.Negate | Op.Not | Op.Print), [] ->
         fatal_runtime_error vm "Not enough arguments on stack."
     | Op.Negate, stack -> (runtime_error vm "operand must be a number", stack)
     | ( ( Op.Add | Op.Subtract | Op.Divide | Op.Multiply | Op.Equal | Op.Greater
@@ -87,10 +93,11 @@ let rec run vm : (unit, Err.t) result =
   vm.stack <- stack;
   match res with `Error e -> Error e | `Ok -> run vm | `Return -> Ok ()
 
-let interpret_chunk (chunk : Chunk.t) : (unit, Err.t) result =
-  run @@ { chunk; ip = 0; stack = [] }
+let interpret_chunk (chunk : Chunk.t) (arena : String_arena.t) :
+    (unit, Err.t) result =
+  run @@ { chunk; ip = 0; stack = []; strings = arena }
 
 let interpret source =
   match Compiler.compile source with
   | Error e -> Error e
-  | Ok chunk -> interpret_chunk chunk
+  | Ok (chunk, arena) -> interpret_chunk chunk arena

@@ -1,6 +1,7 @@
 type parser = {
   scanner : Scanner.t;
   chunk : Chunk.t;
+  arena : String_arena.t;
   mutable previous : Token.t;
   mutable current : Token.t;
   mutable had_error : bool;
@@ -160,8 +161,8 @@ and literal parser =
 and string_ parser =
   let v = parser.previous.content in
   emit_constant parser
-  @@ Value.Object
-       (Value.String { chars = String.sub v 1 (String.length v - 2) })
+  @@ String_arena.get parser.arena
+  @@ String.sub v 1 (String.length v - 2)
 
 and get_rule : Token.kind -> rule =
   let open Precedence in
@@ -193,11 +194,35 @@ let end_compiler p =
   emit_opcode p Chunk.OpCode.Return;
   if Dbg.on () && not p.had_error then Dbg.disassemble_chunk p.chunk "code"
 
-let compile (source : string) : (Chunk.t, Err.t) result =
+let print_statement p =
+  expression p;
+  consume p Token.Semicolon "Expect ';' after value.";
+  emit_opcode p Chunk.OpCode.Print
+
+let statement p =
+  match p.current.kind with
+  | Token.Print ->
+      advance p;
+      print_statement p
+  | _ -> ()
+
+let declaration p = statement p
+
+let rec declarations p =
+  match p.current.kind with
+  | Token.Eof ->
+      advance p;
+      ()
+  | _ ->
+      declaration p;
+      declarations p
+
+let compile (source : string) : (Chunk.t * String_arena.t, Err.t) result =
   let p : parser =
     {
       scanner = Scanner.of_string source;
       chunk = Chunk.make ();
+      arena = Table.make ();
       previous = Token.{ content = ""; kind = Token.Error; line = -1 };
       current = Token.{ content = ""; kind = Token.Error; line = -1 };
       had_error = false;
@@ -205,7 +230,6 @@ let compile (source : string) : (Chunk.t, Err.t) result =
     }
   in
   advance p;
-  expression p;
-  consume p Token.Eof "Expect end of expression.";
+  declarations p;
   end_compiler p;
-  Ok p.chunk
+  Ok (p.chunk, p.arena)

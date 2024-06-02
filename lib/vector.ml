@@ -6,7 +6,7 @@ let grow_capacity (c : int) = if c < 8 then 8 else c * 2
 let write ~vec ~data =
   let capacity = Array.length vec.data in
   if capacity < vec.count + 1 then (
-    (* NOTE(hgoldstein): does passing in `data` here slow things
+    (* NOTE: does passing in `data` here slow things
      * down? Should we functorize this and require a zero value?
      *)
     let new_data = Array.make (grow_capacity capacity) data in

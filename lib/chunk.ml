@@ -14,6 +14,7 @@ module OpCode = struct
     | Equal
     | Greater
     | Less
+    | Print
 
   let to_byte : t -> char = function
     | Return -> '\x00'
@@ -30,6 +31,7 @@ module OpCode = struct
     | Equal -> '\x11'
     | Greater -> '\x12'
     | Less -> '\x13'
+    | Print -> '\x14'
 
   let of_byte : char -> (t, char) result = function
     | '\x00' -> Ok Return
@@ -46,6 +48,7 @@ module OpCode = struct
     | '\x11' -> Ok Equal
     | '\x12' -> Ok Greater
     | '\x13' -> Ok Less
+    | '\x14' -> Ok Print
     | c -> Error c
 end
 
