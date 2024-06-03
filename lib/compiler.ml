@@ -199,14 +199,66 @@ let print_statement p =
   consume p Token.Semicolon "Expect ';' after value.";
   emit_opcode p Chunk.OpCode.Print
 
+let expression_statement p =
+  expression p;
+  consume p Token.Semicolon "Expect ';' after expression.";
+  emit_opcode p Chunk.OpCode.Pop
+
 let statement p =
   match p.current.kind with
   | Token.Print ->
       advance p;
       print_statement p
-  | _ -> ()
+  | _ -> expression_statement p
 
-let declaration p = statement p
+let synchronize p =
+  p.panic_mode <- false;
+  let rec skip p =
+    match (p.previous.kind, p.current.kind) with
+    | Token.Semicolon, _
+    | _, Token.Eof
+    | _, Token.Class
+    | _, Token.Fun
+    | _, Token.Var
+    | _, Token.For
+    | _, Token.If
+    | _, Token.While
+    | _, Token.Print
+    | _, Token.Return ->
+        ()
+    | _, _ ->
+        advance p;
+        skip p
+  in
+  skip p
+
+let identifier_constant p (token : Token.t) =
+  make_constant p @@ String_arena.get p.arena token.content
+
+let parse_variable p msg =
+  consume p Token.Identifier msg;
+  identifier_constant p p.previous
+
+let define_variable p global =
+  emit_opcode p Chunk.OpCode.DefineGlobal;
+  emit_byte p global
+
+let var_declaration p =
+  let global = parse_variable p "Expect variable name." in
+  (match p.current.kind with
+  | Token.Equal ->
+      advance p;
+      expression p
+  | _ -> emit_opcode p Chunk.OpCode.Nil);
+  consume p Token.Semicolon "Expect ; after variable declaration";
+  define_variable p global
+
+let declaration p =
+  match p.current.kind with
+  | Token.Var ->
+      advance p;
+      var_declaration p
+  | _ -> statement p
 
 let rec declarations p =
   match p.current.kind with
@@ -215,6 +267,7 @@ let rec declarations p =
       ()
   | _ ->
       declaration p;
+      if p.panic_mode then synchronize p;
       declarations p
 
 let compile (source : string) : (Chunk.t * String_arena.t, Err.t) result =

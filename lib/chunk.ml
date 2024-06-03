@@ -15,6 +15,8 @@ module OpCode = struct
     | Greater
     | Less
     | Print
+    | Pop
+    | DefineGlobal
 
   let to_byte : t -> char = function
     | Return -> '\x00'
@@ -27,11 +29,13 @@ module OpCode = struct
     | Nil -> '\x07'
     | True -> '\x08'
     | False -> '\x09'
-    | Not -> '\x10'
-    | Equal -> '\x11'
-    | Greater -> '\x12'
-    | Less -> '\x13'
-    | Print -> '\x14'
+    | Not -> '\x0A'
+    | Equal -> '\x0B'
+    | Greater -> '\x0C'
+    | Less -> '\x0D'
+    | Print -> '\x0E'
+    | Pop -> '\x0F'
+    | DefineGlobal -> '\x10'
 
   let of_byte : char -> (t, char) result = function
     | '\x00' -> Ok Return
@@ -44,11 +48,13 @@ module OpCode = struct
     | '\x07' -> Ok Nil
     | '\x08' -> Ok True
     | '\x09' -> Ok False
-    | '\x10' -> Ok Not
-    | '\x11' -> Ok Equal
-    | '\x12' -> Ok Greater
-    | '\x13' -> Ok Less
-    | '\x14' -> Ok Print
+    | '\x0A' -> Ok Not
+    | '\x0B' -> Ok Equal
+    | '\x0C' -> Ok Greater
+    | '\x0D' -> Ok Less
+    | '\x0E' -> Ok Print
+    | '\x0F' -> Ok Pop
+    | '\x10' -> Ok DefineGlobal
     | c -> Error c
 end
 

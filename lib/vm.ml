@@ -75,8 +75,9 @@ let rec run vm : (unit, Err.t) result =
     | Op.Print, v :: stack ->
         Value.print_line v;
         (`Ok, stack)
+    | Op.Pop, _ :: stack -> (`Ok, stack)
     (* Error cases *)
-    | (Op.Negate | Op.Not | Op.Print), [] ->
+    | (Op.Negate | Op.Not | Op.Print | Op.Pop), [] ->
         fatal_runtime_error vm "Not enough arguments on stack."
     | Op.Negate, stack -> (runtime_error vm "operand must be a number", stack)
     | ( ( Op.Add | Op.Subtract | Op.Divide | Op.Multiply | Op.Equal | Op.Greater
