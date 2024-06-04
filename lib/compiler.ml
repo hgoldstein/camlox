@@ -8,6 +8,8 @@ type parser = {
   mutable panic_mode : bool;
 }
 
+module Op = Chunk.OpCode
+
 module Precedence = struct
   type t =
     | NoPrec
@@ -35,11 +37,17 @@ module Precedence = struct
     | Unary -> Call
     | Call -> Primary
     | Primary -> failwith "Unexpected argument to `Precedence.next`: Primary"
+
+  let can_assign = function
+    | NoPrec | Assignment -> true
+    | Or | And | Equality | Comparison | Term | Factor | Unary | Call | Primary
+      ->
+        false
 end
 
 type rule = {
-  prefix : (parser -> unit) option;
-  infix : (parser -> unit) option;
+  prefix : (parser -> bool -> unit) option;
+  infix : (parser -> bool -> unit) option;
   precedence : Precedence.t;
 }
 
@@ -92,32 +100,34 @@ let make_constant p value =
 
 let emit_constant p value =
   let c = make_constant p value in
-  emit_opcode p Chunk.OpCode.Constant;
+  emit_opcode p Op.Constant;
   emit_byte p c
 
-let number p =
+let number p _ =
   let value = Value.Float (Float.of_string p.previous.content) in
   emit_constant p value
 
+let identifier_constant p (token : Token.t) =
+  make_constant p @@ String_arena.get p.arena token.content
+
 let rec expression parser : unit = parse_precedence parser Precedence.Assignment
 
-and grouping p =
+and grouping p _ =
   expression p;
   consume p Token.RightParen "Expect ')' after expression."
 
-and unary p =
+and unary p _ =
   let op = p.previous.kind in
   parse_precedence p Precedence.Unary;
   match op with
-  | Token.Minus -> emit_opcode p Chunk.OpCode.Negate
-  | Token.Bang -> emit_opcode p Chunk.OpCode.Not
+  | Token.Minus -> emit_opcode p Op.Negate
+  | Token.Bang -> emit_opcode p Op.Not
   | _ -> assert false
 
-and binary p =
+and binary p _ =
   let op = p.previous.kind in
   let rule = get_rule op in
   parse_precedence p @@ Precedence.next rule.precedence;
-  let open Chunk.OpCode in
   let e = emit_opcode p in
   match op with
   | Token.BangEqual ->
@@ -140,29 +150,47 @@ and binary p =
 
 and parse_precedence p prec =
   advance p;
+  let can_assign = Precedence.can_assign prec in
   let rule = get_rule p.previous.kind in
   (match rule.prefix with
   | None -> error p "Expect expression."
-  | Some prefix_rule -> prefix_rule p);
+  | Some prefix_rule -> prefix_rule p can_assign);
   while Precedence.compare prec (get_rule p.current.kind).precedence <= 0 do
     advance p;
     match (get_rule p.previous.kind).infix with
-    | Some infix_rule -> infix_rule p
+    | Some infix_rule -> infix_rule p can_assign
     | None -> assert false
-  done
+  done;
+  match p.current.kind with
+  | Token.Equal when can_assign ->
+      advance p;
+      error p "Invalid assignment target."
+  | _ -> ()
 
-and literal parser =
+and literal parser _ =
   match parser.previous.kind with
-  | Token.False -> emit_opcode parser Chunk.OpCode.False
-  | Token.True -> emit_opcode parser Chunk.OpCode.True
-  | Token.Nil -> emit_opcode parser Chunk.OpCode.Nil
+  | Token.False -> emit_opcode parser Op.False
+  | Token.True -> emit_opcode parser Op.True
+  | Token.Nil -> emit_opcode parser Op.Nil
   | _ -> assert false
 
-and string_ parser =
+and string_ parser _ =
   let v = parser.previous.content in
   emit_constant parser
   @@ String_arena.get parser.arena
   @@ String.sub v 1 (String.length v - 2)
+
+and named_variable p tok can_assign =
+  let arg = identifier_constant p tok in
+  (match p.current.kind with
+  | Token.Equal when can_assign ->
+      advance p;
+      expression p;
+      emit_opcode p Op.SetGlobal
+  | _ -> emit_opcode p Op.GetGlobal);
+  emit_byte p arg
+
+and variable p can_assign = named_variable p p.previous can_assign
 
 and get_rule : Token.kind -> rule =
   let open Precedence in
@@ -188,21 +216,22 @@ and get_rule : Token.kind -> rule =
   | Token.Less -> make_rule ~infix:(Some binary) ~prec:Comparison ()
   | Token.LessEqual -> make_rule ~infix:(Some binary) ~prec:Comparison ()
   | Token.String -> make_rule ~prefix:(Some string_) ()
+  | Token.Identifier -> make_rule ~prefix:(Some variable) ()
   | _ -> make_rule ()
 
 let end_compiler p =
-  emit_opcode p Chunk.OpCode.Return;
+  emit_opcode p Op.Return;
   if Dbg.on () && not p.had_error then Dbg.disassemble_chunk p.chunk "code"
 
 let print_statement p =
   expression p;
   consume p Token.Semicolon "Expect ';' after value.";
-  emit_opcode p Chunk.OpCode.Print
+  emit_opcode p Op.Print
 
 let expression_statement p =
   expression p;
   consume p Token.Semicolon "Expect ';' after expression.";
-  emit_opcode p Chunk.OpCode.Pop
+  emit_opcode p Op.Pop
 
 let statement p =
   match p.current.kind with
@@ -232,15 +261,12 @@ let synchronize p =
   in
   skip p
 
-let identifier_constant p (token : Token.t) =
-  make_constant p @@ String_arena.get p.arena token.content
-
 let parse_variable p msg =
   consume p Token.Identifier msg;
   identifier_constant p p.previous
 
 let define_variable p global =
-  emit_opcode p Chunk.OpCode.DefineGlobal;
+  emit_opcode p Op.DefineGlobal;
   emit_byte p global
 
 let var_declaration p =
@@ -249,7 +275,7 @@ let var_declaration p =
   | Token.Equal ->
       advance p;
       expression p
-  | _ -> emit_opcode p Chunk.OpCode.Nil);
+  | _ -> emit_opcode p Op.Nil);
   consume p Token.Semicolon "Expect ; after variable declaration";
   define_variable p global
 

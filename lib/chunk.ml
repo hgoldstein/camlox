@@ -17,6 +17,8 @@ module OpCode = struct
     | Print
     | Pop
     | DefineGlobal
+    | GetGlobal
+    | SetGlobal
 
   let to_byte : t -> char = function
     | Return -> '\x00'
@@ -36,6 +38,8 @@ module OpCode = struct
     | Print -> '\x0E'
     | Pop -> '\x0F'
     | DefineGlobal -> '\x10'
+    | GetGlobal -> '\x11'
+    | SetGlobal -> '\x12'
 
   let of_byte : char -> (t, char) result = function
     | '\x00' -> Ok Return
@@ -55,6 +59,8 @@ module OpCode = struct
     | '\x0E' -> Ok Print
     | '\x0F' -> Ok Pop
     | '\x10' -> Ok DefineGlobal
+    | '\x11' -> Ok GetGlobal
+    | '\x12' -> Ok SetGlobal
     | c -> Error c
 end
 

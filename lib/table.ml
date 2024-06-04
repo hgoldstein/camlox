@@ -11,3 +11,4 @@ let make () = StrTable.create 0
 let set = StrTable.add
 let find = StrTable.find_opt
 let delete = StrTable.remove
+let mem = StrTable.mem

@@ -1,4 +1,4 @@
-type t
+type t [@@deriving show]
 
 val get : t -> string
 val hash : t -> int

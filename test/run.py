@@ -61,7 +61,9 @@ class Test:
         )
 
     def print_diff(self) -> None:
-        subprocess.run(["difft", "--display=side-by-side-show-both", self.expect(), self.output()])
+        subprocess.run(
+            ["difft", "--display=side-by-side-show-both", self.expect(), self.output()]
+        )
 
     def name(self) -> str:
         return str(self.file.relative_to(ROOT))
@@ -93,15 +95,20 @@ class Test:
         return OutputMismatch()
 
 
-def tests() -> Generator[Test, None, None]:
+def generate_tests() -> Generator[Test, None, None]:
     for d, _, files in os.walk(ROOT):
         for f in files:
             if f.endswith(".lox"):
                 yield Test(file=(pathlib.Path(d) / f))
 
 
-def run_tests(promote: bool) -> None:
-    for test in tests():
+def tests_from_file_list(files: list[str]) -> Generator[Test, None, None]:
+    for f in files:
+        yield Test(file=pathlib.Path(f).resolve())
+
+
+def run_tests(files: list[str], promote: bool) -> None:
+    for test in tests_from_file_list(files) if len(files) > 0 else generate_tests():
         log.info(f"Running `{test.name()}'")
         match r := test.run(promote):
             case None:
@@ -118,9 +125,10 @@ def run_tests(promote: bool) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("files", nargs="*")
     parser.add_argument("-p", "--promote", action="store_true")
     args = parser.parse_args()
-    run_tests(args.promote)
+    run_tests(args.files, args.promote)
 
 
 if __name__ == "__main__":

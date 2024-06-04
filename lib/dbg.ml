@@ -40,7 +40,9 @@ let disassemble_instruction (c : Chunk.t) (offset : int) : int =
   | Ok Op.Equal -> simple_instruction "OP_EQUAL" offset
   | Ok Op.Print -> simple_instruction "OP_PRINT" offset
   | Ok Op.Pop -> simple_instruction "OP_POP" offset
-  | Ok Op.DefineGlobal -> constant_instruction c "OP_CONSTANT" offset
+  | Ok Op.DefineGlobal -> constant_instruction c "OP_DEFINE_GLOBAL" offset
+  | Ok Op.GetGlobal -> constant_instruction c "OP_GET_GLOBAL" offset
+  | Ok Op.SetGlobal -> constant_instruction c "OP_SET_GLOBAL" offset
   | Error c ->
       Printf.printf "Unknown opcode %d" (Char.code c);
       offset + 1

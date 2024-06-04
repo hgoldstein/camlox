@@ -1,4 +1,4 @@
-type t = { chars : string; hash : int }
+type t = { chars : string; hash : int } [@@deriving show]
 
 let get { chars; hash = _ } = chars
 let hash { chars = _; hash } = hash

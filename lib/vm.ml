@@ -5,6 +5,7 @@ type t = {
   mutable ip : int;
   mutable stack : Value.t list;
   strings : String_arena.t;
+  globals : Value.t Table.t;
 }
 
 type cycle_result = [ `Ok | `Error of Err.t | `Return ]
@@ -18,6 +19,17 @@ let read_constant vm =
   let index = Char.to_int @@ read_byte vm in
   Vector.at ~vec:vm.chunk.constants ~index
 
+let fatal_runtime_error (_ : t) msg =
+  Printf.eprintf "FATAL: %s\n" msg;
+  exit 2
+
+let read_string vm =
+  match read_constant vm with
+  | Value.Object (Value.String s) -> s
+  | v ->
+      fatal_runtime_error vm
+        (Printf.sprintf "Expected string constant, got: %s" (Value.show v))
+
 let print_stack vm =
   Printf.printf "          ";
   List.iter ~f:(fun v ->
@@ -27,10 +39,6 @@ let print_stack vm =
   @@ List.rev vm.stack;
   Printf.printf "\n";
   ()
-
-let fatal_runtime_error (_ : t) msg =
-  Printf.eprintf "FATAL: %s\n" msg;
-  exit 2
 
 let runtime_error (vm : t) msg : cycle_result =
   Printf.eprintf "%s\n" msg;
@@ -76,8 +84,30 @@ let rec run vm : (unit, Err.t) result =
         Value.print_line v;
         (`Ok, stack)
     | Op.Pop, _ :: stack -> (`Ok, stack)
+    | Op.DefineGlobal, value :: stack ->
+        let name = read_string vm in
+        Table.set vm.globals name value;
+        (`Ok, stack)
+    | Op.GetGlobal, stack -> (
+        let name = read_string vm in
+        match Table.find vm.globals name with
+        | None ->
+            ( runtime_error vm
+                (Printf.sprintf "Undefined variable '%s'." (String_val.get name)),
+              stack )
+        | Some v -> (`Ok, v :: stack))
+    | Op.SetGlobal, v :: stack ->
+        let name = read_string vm in
+        if not @@ Table.mem vm.globals name then
+          ( runtime_error vm
+              (Printf.sprintf "Undefined variable '%s'." (String_val.get name)),
+            v :: stack )
+        else (
+          Table.set vm.globals name v;
+          (`Ok, v :: stack))
     (* Error cases *)
-    | (Op.Negate | Op.Not | Op.Print | Op.Pop), [] ->
+    | ( (Op.Negate | Op.Not | Op.Print | Op.Pop | Op.DefineGlobal | Op.SetGlobal),
+        [] ) ->
         fatal_runtime_error vm "Not enough arguments on stack."
     | Op.Negate, stack -> (runtime_error vm "operand must be a number", stack)
     | ( ( Op.Add | Op.Subtract | Op.Divide | Op.Multiply | Op.Equal | Op.Greater
@@ -96,7 +126,7 @@ let rec run vm : (unit, Err.t) result =
 
 let interpret_chunk (chunk : Chunk.t) (arena : String_arena.t) :
     (unit, Err.t) result =
-  run @@ { chunk; ip = 0; stack = []; strings = arena }
+  run @@ { chunk; ip = 0; stack = []; strings = arena; globals = Table.make () }
 
 let interpret source =
   match Compiler.compile source with

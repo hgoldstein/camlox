@@ -2,7 +2,7 @@ open Core
 
 type str = { chars : string; hash : int }
 and obj = String of String_val.t
-and t = Float of float | Bool of bool | Nil | Object of obj
+and t = Float of float | Bool of bool | Nil | Object of obj [@@deriving show]
 
 let print = function
   | Float f -> Printf.printf "%g" f
