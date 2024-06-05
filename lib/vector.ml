@@ -1,6 +1,6 @@
-type 'a t = { mutable data : 'a Array.t; mutable count : int }
+type !'a t = { mutable data : 'a Array.t; mutable count : int }
 
-let make ~size ~elem = { count = 0; data = Array.make size elem }
+let empty () = { count = 0; data = [||] }
 let grow_capacity (c : int) = if c < 8 then 8 else c * 2
 
 let write ~vec ~data =

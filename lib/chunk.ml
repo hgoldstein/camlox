@@ -72,9 +72,9 @@ type t = {
 
 let make () =
   {
-    code = Vector.make ~size:0 ~elem:'\x00';
-    constants = Vector.make ~size:0 ~elem:(Value.Float 0.0);
-    lines = Vector.make ~size:0 ~elem:(-1);
+    code = Vector.empty ();
+    constants = Vector.empty ();
+    lines = Vector.empty ();
   }
 
 let write_byte ~chunk ~line ~byte =

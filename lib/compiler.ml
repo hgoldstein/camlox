@@ -2,6 +2,7 @@ type parser = {
   scanner : Scanner.t;
   chunk : Chunk.t;
   arena : String_arena.t;
+  local_tracker : Locals.t;
   mutable previous : Token.t;
   mutable current : Token.t;
   mutable had_error : bool;
@@ -109,6 +110,42 @@ let number p _ =
 
 let identifier_constant p (token : Token.t) =
   make_constant p @@ String_arena.get p.arena token.content
+
+let parse_variable p msg =
+  consume p Token.Identifier msg;
+  identifier_constant p p.previous
+
+let define_variable p global =
+  emit_opcode p Op.DefineGlobal;
+  emit_byte p global
+
+let end_compiler p =
+  emit_opcode p Op.Return;
+  if Dbg.on () && not p.had_error then Dbg.disassemble_chunk p.chunk "code"
+
+let begin_scope p = Locals.begin_scope p.local_tracker
+let end_scope p = Locals.end_scope p.local_tracker
+
+let synchronize p =
+  p.panic_mode <- false;
+  let rec skip p =
+    match (p.previous.kind, p.current.kind) with
+    | Token.Semicolon, _
+    | _, Token.Eof
+    | _, Token.Class
+    | _, Token.Fun
+    | _, Token.Var
+    | _, Token.For
+    | _, Token.If
+    | _, Token.While
+    | _, Token.Print
+    | _, Token.Return ->
+        ()
+    | _, _ ->
+        advance p;
+        skip p
+  in
+  skip p
 
 let rec expression parser : unit = parse_precedence parser Precedence.Assignment
 
@@ -219,57 +256,37 @@ and get_rule : Token.kind -> rule =
   | Token.Identifier -> make_rule ~prefix:(Some variable) ()
   | _ -> make_rule ()
 
-let end_compiler p =
-  emit_opcode p Op.Return;
-  if Dbg.on () && not p.had_error then Dbg.disassemble_chunk p.chunk "code"
-
-let print_statement p =
+and print_statement p =
   expression p;
   consume p Token.Semicolon "Expect ';' after value.";
   emit_opcode p Op.Print
 
-let expression_statement p =
+and expression_statement p =
   expression p;
   consume p Token.Semicolon "Expect ';' after expression.";
   emit_opcode p Op.Pop
 
-let statement p =
+and statement p =
   match p.current.kind with
   | Token.Print ->
       advance p;
       print_statement p
+  | Token.LeftBrace ->
+      advance p;
+      begin_scope p;
+      block p;
+      end_scope p
   | _ -> expression_statement p
 
-let synchronize p =
-  p.panic_mode <- false;
-  let rec skip p =
-    match (p.previous.kind, p.current.kind) with
-    | Token.Semicolon, _
-    | _, Token.Eof
-    | _, Token.Class
-    | _, Token.Fun
-    | _, Token.Var
-    | _, Token.For
-    | _, Token.If
-    | _, Token.While
-    | _, Token.Print
-    | _, Token.Return ->
-        ()
-    | _, _ ->
-        advance p;
-        skip p
-  in
-  skip p
+and block p =
+  match p.current.kind with
+  | Token.RightBrace | Token.Eof ->
+      consume p Token.RightBrace "Expect '}' after block."
+  | _ ->
+      declaration p;
+      block p
 
-let parse_variable p msg =
-  consume p Token.Identifier msg;
-  identifier_constant p p.previous
-
-let define_variable p global =
-  emit_opcode p Op.DefineGlobal;
-  emit_byte p global
-
-let var_declaration p =
+and var_declaration p =
   let global = parse_variable p "Expect variable name." in
   (match p.current.kind with
   | Token.Equal ->
@@ -279,14 +296,14 @@ let var_declaration p =
   consume p Token.Semicolon "Expect ; after variable declaration";
   define_variable p global
 
-let declaration p =
+and declaration p =
   match p.current.kind with
   | Token.Var ->
       advance p;
       var_declaration p
   | _ -> statement p
 
-let rec declarations p =
+and declarations p =
   match p.current.kind with
   | Token.Eof ->
       advance p;
@@ -302,6 +319,7 @@ let compile (source : string) : (Chunk.t * String_arena.t, Err.t) result =
       scanner = Scanner.of_string source;
       chunk = Chunk.make ();
       arena = Table.make ();
+      local_tracker = Locals.make ();
       previous = Token.{ content = ""; kind = Token.Error; line = -1 };
       current = Token.{ content = ""; kind = Token.Error; line = -1 };
       had_error = false;
