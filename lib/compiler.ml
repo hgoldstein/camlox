@@ -111,20 +111,59 @@ let number p _ =
 let identifier_constant p (token : Token.t) =
   make_constant p @@ String_arena.get p.arena token.content
 
+let add_local p =
+  if List.length p.local_tracker.locals > 255 then
+    error p "Too many local variables in function."
+  else
+    p.local_tracker.locals <-
+      { Locals.depth = p.local_tracker.scope_depth; name = p.previous }
+      :: p.local_tracker.locals
+
+let identifiers_equal (a : Token.t) (b : Token.t) =
+  String.equal a.content b.content
+
+let declare_variable p =
+  let rec detect_duplicate : Locals.local list -> unit = function
+    | [] -> ()
+    | l :: ls ->
+        if l.depth <> -1 && l.depth < p.local_tracker.scope_depth then ()
+        else if identifiers_equal l.name p.previous then
+          error p "Already a variable with this name in this scope."
+        else detect_duplicate ls
+  in
+  if p.local_tracker.scope_depth = 0 then ()
+  else (
+    detect_duplicate p.local_tracker.locals;
+    add_local p)
+
 let parse_variable p msg =
   consume p Token.Identifier msg;
-  identifier_constant p p.previous
+  declare_variable p;
+  if p.local_tracker.scope_depth > 0 then Char.chr 0
+  else identifier_constant p p.previous
 
 let define_variable p global =
-  emit_opcode p Op.DefineGlobal;
-  emit_byte p global
+  if p.local_tracker.scope_depth > 0 then ()
+  else (
+    emit_opcode p Op.DefineGlobal;
+    emit_byte p global)
 
 let end_compiler p =
   emit_opcode p Op.Return;
   if Dbg.on () && not p.had_error then Dbg.disassemble_chunk p.chunk "code"
 
 let begin_scope p = Locals.begin_scope p.local_tracker
-let end_scope p = Locals.end_scope p.local_tracker
+
+let end_scope p =
+  Locals.end_scope p.local_tracker;
+  let rec pop_locals : Locals.local list -> Locals.local list = function
+    | [] -> []
+    | l :: ls when l.depth <= p.local_tracker.scope_depth -> l :: ls
+    | _ :: ls ->
+        emit_opcode p Op.Pop;
+        pop_locals ls
+  in
+  p.local_tracker.locals <- pop_locals p.local_tracker.locals
 
 let synchronize p =
   p.panic_mode <- false;

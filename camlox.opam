@@ -4,7 +4,7 @@ synopsis: "A short synopsis"
 description: "A longer description"
 maintainer: ["Hunter Goldstein"]
 authors: ["Hunter Goldstein"]
-license: "LICENSE"
+license: "MIT"
 homepage: "https://github.com/hgoldstein/camlox"
 bug-reports: "https://github.com/hgoldstein/camlox/issues"
 depends: [
@@ -12,6 +12,7 @@ depends: [
   "dune" {>= "3.15"}
   "core"
   "core_unix"
+  "ppx_deriving"
   "odoc" {with-doc}
 ]
 build: [

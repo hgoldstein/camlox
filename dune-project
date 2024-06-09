@@ -11,12 +11,12 @@
 
 (maintainers "Hunter Goldstein")
 
-(license LICENSE)
+(license MIT)
 
 (package
  (name camlox)
  (synopsis "A short synopsis")
  (description "A longer description")
- (depends ocaml dune core core_unix))
+ (depends ocaml dune core core_unix ppx_deriving))
 
 ; See the complete stanza docs at https://dune.readthedocs.io/en/stable/dune-files.html#dune-project
