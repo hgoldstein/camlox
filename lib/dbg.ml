@@ -6,6 +6,11 @@ let simple_instruction name offset =
   Printf.printf "%s\n" name;
   offset + 1
 
+let byte_instruction (chunk : Chunk.t) name offset =
+  let byte = Char.code @@ Vector.at ~vec:chunk.code ~index:(offset + 1) in
+  Printf.printf "%-16s %4d\n" name byte;
+  offset + 2
+
 let constant_instruction (chunk : Chunk.t) name offset =
   let const = Char.code @@ Vector.at ~vec:chunk.code ~index:(offset + 1) in
   Printf.printf "%-16s %4d " name const;
@@ -43,6 +48,8 @@ let disassemble_instruction (c : Chunk.t) (offset : int) : int =
   | Ok Op.DefineGlobal -> constant_instruction c "OP_DEFINE_GLOBAL" offset
   | Ok Op.GetGlobal -> constant_instruction c "OP_GET_GLOBAL" offset
   | Ok Op.SetGlobal -> constant_instruction c "OP_SET_GLOBAL" offset
+  | Ok Op.GetLocal -> byte_instruction c "OP_GET_LOCAL" offset
+  | Ok Op.SetLocal -> byte_instruction c "OP_SET_LOCAL" offset
   | Error c ->
       Printf.printf "Unknown opcode %d" (Char.code c);
       offset + 1

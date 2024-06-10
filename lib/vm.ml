@@ -31,13 +31,13 @@ let read_string vm =
         (Printf.sprintf "Expected string constant, got: %s" (Value.show v))
 
 let print_stack vm =
-  Printf.printf "          ";
+  Printf.eprintf "          ";
   List.iter ~f:(fun v ->
-      Printf.printf "[ ";
+      Printf.eprintf "[ ";
       Value.print v;
-      Printf.printf " ]")
+      Printf.eprintf " ]")
   @@ List.rev vm.stack;
-  Printf.printf "\n";
+  Printf.eprintf "\n";
   ()
 
 let runtime_error (vm : t) msg : cycle_result =
@@ -58,6 +58,7 @@ let rec run vm : (unit, Err.t) result =
         Printf.eprintf "Unknown bytecode instruction %d" (Char.to_int c);
         exit 1
   in
+  let flip wrt i = List.length wrt - (Char.to_int i + 1) in
   let res, stack =
     match (opcode, vm.stack) with
     | Op.Return, vs -> (`Return, vs)
@@ -105,8 +106,16 @@ let rec run vm : (unit, Err.t) result =
         else (
           Table.set vm.globals name v;
           (`Ok, v :: stack))
+    | Op.GetLocal, stack ->
+        let slot = flip stack @@ read_byte vm in
+        (`Ok, List.nth_exn stack slot :: stack)
+    | Op.SetLocal, (top :: _ as stack) ->
+        let slot = flip stack @@ read_byte vm in
+        let f idx v = if idx = slot then top else v in
+        (`Ok, List.mapi stack ~f)
     (* Error cases *)
-    | ( (Op.Negate | Op.Not | Op.Print | Op.Pop | Op.DefineGlobal | Op.SetGlobal),
+    | ( ( Op.Negate | Op.Not | Op.Print | Op.Pop | Op.DefineGlobal
+        | Op.SetGlobal | Op.SetLocal ),
         [] ) ->
         fatal_runtime_error vm "Not enough arguments on stack."
     | Op.Negate, stack -> (runtime_error vm "operand must be a number", stack)

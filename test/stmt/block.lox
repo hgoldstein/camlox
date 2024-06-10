@@ -1,0 +1,6 @@
+var a = "lol";
+print "I am out of a block: " + a;
+{
+    var b = "heh";
+    print "I am in a block: " + "heh";
+}

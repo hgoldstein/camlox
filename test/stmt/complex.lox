@@ -1,0 +1,11 @@
+{
+    var first = "first!";
+    var second = "second!";
+    print first + second;
+    {
+        var third = "third!";
+        second = "~second~";
+        print first + second + third;
+    }
+    print first + second;
+}

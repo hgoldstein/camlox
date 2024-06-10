@@ -116,8 +116,7 @@ let add_local p =
     error p "Too many local variables in function."
   else
     p.local_tracker.locals <-
-      { Locals.depth = p.local_tracker.scope_depth; name = p.previous }
-      :: p.local_tracker.locals
+      Locals.{ depth = -1; name = p.previous } :: p.local_tracker.locals
 
 let identifiers_equal (a : Token.t) (b : Token.t) =
   String.equal a.content b.content
@@ -142,8 +141,17 @@ let parse_variable p msg =
   if p.local_tracker.scope_depth > 0 then Char.chr 0
   else identifier_constant p p.previous
 
+let mark_initialized p =
+  match p.local_tracker.locals with
+  | [] ->
+      failwith
+        "Attempted to mark a variable initialized with an empty local stack."
+  | x :: xs ->
+      p.local_tracker.locals <-
+        { x with depth = p.local_tracker.scope_depth } :: xs
+
 let define_variable p global =
-  if p.local_tracker.scope_depth > 0 then ()
+  if p.local_tracker.scope_depth > 0 then mark_initialized p
   else (
     emit_opcode p Op.DefineGlobal;
     emit_byte p global)
@@ -257,13 +265,23 @@ and string_ parser _ =
   @@ String.sub v 1 (String.length v - 2)
 
 and named_variable p tok can_assign =
-  let arg = identifier_constant p tok in
+  let rec resolve_local : Locals.local list -> int = function
+    | [] -> -1
+    | l :: ls ->
+        if identifiers_equal tok l.name then List.length ls
+        else resolve_local ls
+  in
+  let arg, get_op, set_op =
+    let arg = resolve_local p.local_tracker.locals in
+    if arg <> -1 then (Char.chr arg, Op.GetLocal, Op.SetLocal)
+    else (identifier_constant p tok, Op.GetGlobal, Op.SetGlobal)
+  in
   (match p.current.kind with
   | Token.Equal when can_assign ->
       advance p;
       expression p;
-      emit_opcode p Op.SetGlobal
-  | _ -> emit_opcode p Op.GetGlobal);
+      emit_opcode p set_op
+  | _ -> emit_opcode p get_op);
   emit_byte p arg
 
 and variable p can_assign = named_variable p p.previous can_assign
@@ -368,4 +386,4 @@ let compile (source : string) : (Chunk.t * String_arena.t, Err.t) result =
   advance p;
   declarations p;
   end_compiler p;
-  Ok (p.chunk, p.arena)
+  if p.had_error then Error Err.Compile else Ok (p.chunk, p.arena)
