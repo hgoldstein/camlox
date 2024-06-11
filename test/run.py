@@ -119,7 +119,8 @@ def tests_from_file_list(files: list[str]) -> Generator[Test, None, None]:
         yield Test(file=pathlib.Path(f).resolve())
 
 
-def run_tests(files: list[str], promote: bool) -> None:
+def run_tests(files: list[str], promote: bool) -> bool:
+    failed = False
     for test in tests_from_file_list(files) if len(files) > 0 else generate_tests():
         log.info(f"Running `{test.name()}'")
         match r := test.run(promote):
@@ -130,9 +131,12 @@ def run_tests(files: list[str], promote: bool) -> None:
             case OutputMismatch():
                 log.error(f"`{test.name()}' failed, output mismatch:")
                 test.print_diff()
+                failed = True
             case NoOutputFile():
                 log.error(f"`{test.name()}' failed, no output file")
                 log.info(f"`{test.name()}' output:\n{r.output}")
+                failed = True
+    return failed
 
 
 def main() -> None:
@@ -140,7 +144,10 @@ def main() -> None:
     parser.add_argument("files", nargs="*")
     parser.add_argument("-p", "--promote", action="store_true")
     args = parser.parse_args()
-    run_tests(args.files, args.promote)
+    if run_tests(args.files, args.promote):
+        exit(1)
+    else:
+        exit(0)
 
 
 if __name__ == "__main__":
