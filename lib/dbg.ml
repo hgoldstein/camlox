@@ -29,30 +29,27 @@ let disassemble_instruction (c : Chunk.t) (offset : int) : int =
   Printf.printf "%04d " offset;
   print_line_number c offset;
   match Op.of_byte (Vector.at ~vec:c.code ~index:offset) with
-  | Ok Op.Constant -> constant_instruction c "OP_CONSTANT" offset
-  | Ok Op.Return -> simple_instruction "OP_RETURN" offset
-  | Ok Op.Negate -> simple_instruction "OP_NEGATE" offset
-  | Ok Op.Add -> simple_instruction "OP_ADD" offset
-  | Ok Op.Subtract -> simple_instruction "OP_SUBTRACT" offset
-  | Ok Op.Multiply -> simple_instruction "OP_MULTIPLY" offset
-  | Ok Op.Divide -> simple_instruction "OP_DIVIDE" offset
-  | Ok Op.Nil -> simple_instruction "OP_NIL" offset
-  | Ok Op.True -> simple_instruction "OP_TRUE" offset
-  | Ok Op.False -> simple_instruction "OP_FALSE" offset
-  | Ok Op.Not -> simple_instruction "OP_NOT" offset
-  | Ok Op.Less -> simple_instruction "OP_LESS" offset
-  | Ok Op.Greater -> simple_instruction "OP_GREATER" offset
-  | Ok Op.Equal -> simple_instruction "OP_EQUAL" offset
-  | Ok Op.Print -> simple_instruction "OP_PRINT" offset
-  | Ok Op.Pop -> simple_instruction "OP_POP" offset
-  | Ok Op.DefineGlobal -> constant_instruction c "OP_DEFINE_GLOBAL" offset
-  | Ok Op.GetGlobal -> constant_instruction c "OP_GET_GLOBAL" offset
-  | Ok Op.SetGlobal -> constant_instruction c "OP_SET_GLOBAL" offset
-  | Ok Op.GetLocal -> byte_instruction c "OP_GET_LOCAL" offset
-  | Ok Op.SetLocal -> byte_instruction c "OP_SET_LOCAL" offset
-  | Error c ->
-      Printf.printf "Unknown opcode %d" (Char.code c);
-      offset + 1
+  | Op.Constant -> constant_instruction c "OP_CONSTANT" offset
+  | Op.Return -> simple_instruction "OP_RETURN" offset
+  | Op.Negate -> simple_instruction "OP_NEGATE" offset
+  | Op.Add -> simple_instruction "OP_ADD" offset
+  | Op.Subtract -> simple_instruction "OP_SUBTRACT" offset
+  | Op.Multiply -> simple_instruction "OP_MULTIPLY" offset
+  | Op.Divide -> simple_instruction "OP_DIVIDE" offset
+  | Op.Nil -> simple_instruction "OP_NIL" offset
+  | Op.True -> simple_instruction "OP_TRUE" offset
+  | Op.False -> simple_instruction "OP_FALSE" offset
+  | Op.Not -> simple_instruction "OP_NOT" offset
+  | Op.Less -> simple_instruction "OP_LESS" offset
+  | Op.Greater -> simple_instruction "OP_GREATER" offset
+  | Op.Equal -> simple_instruction "OP_EQUAL" offset
+  | Op.Print -> simple_instruction "OP_PRINT" offset
+  | Op.Pop -> simple_instruction "OP_POP" offset
+  | Op.DefineGlobal -> constant_instruction c "OP_DEFINE_GLOBAL" offset
+  | Op.GetGlobal -> constant_instruction c "OP_GET_GLOBAL" offset
+  | Op.SetGlobal -> constant_instruction c "OP_SET_GLOBAL" offset
+  | Op.GetLocal -> byte_instruction c "OP_GET_LOCAL" offset
+  | Op.SetLocal -> byte_instruction c "OP_SET_LOCAL" offset
 
 let disassemble_chunk (c : Chunk.t) (name : string) =
   Printf.printf "== %s ==\n" name;

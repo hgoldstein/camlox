@@ -22,52 +22,16 @@ module OpCode = struct
     | GetLocal
     | SetLocal
 
-  let to_byte : t -> char = function
-    | Return -> '\x00'
-    | Constant -> '\x01'
-    | Negate -> '\x02'
-    | Add -> '\x03'
-    | Subtract -> '\x04'
-    | Multiply -> '\x05'
-    | Divide -> '\x06'
-    | Nil -> '\x07'
-    | True -> '\x08'
-    | False -> '\x09'
-    | Not -> '\x0A'
-    | Equal -> '\x0B'
-    | Greater -> '\x0C'
-    | Less -> '\x0D'
-    | Print -> '\x0E'
-    | Pop -> '\x0F'
-    | DefineGlobal -> '\x10'
-    | GetGlobal -> '\x11'
-    | SetGlobal -> '\x12'
-    | GetLocal -> '\x13'
-    | SetLocal -> '\x14'
+  (* NOTE: I don't love using Obj.magic here but it's the easiest way to
+   * have this converstion function w/o codegen or writing things by hand.
+   *)
+  let to_byte (op : t) : char =
+    let c = Obj.magic op in
+    let i = Char.code c in
+    assert (i >= 0 && i <= 255);
+    c
 
-  let of_byte : char -> (t, char) result = function
-    | '\x00' -> Ok Return
-    | '\x01' -> Ok Constant
-    | '\x02' -> Ok Negate
-    | '\x03' -> Ok Add
-    | '\x04' -> Ok Subtract
-    | '\x05' -> Ok Multiply
-    | '\x06' -> Ok Divide
-    | '\x07' -> Ok Nil
-    | '\x08' -> Ok True
-    | '\x09' -> Ok False
-    | '\x0A' -> Ok Not
-    | '\x0B' -> Ok Equal
-    | '\x0C' -> Ok Greater
-    | '\x0D' -> Ok Less
-    | '\x0E' -> Ok Print
-    | '\x0F' -> Ok Pop
-    | '\x10' -> Ok DefineGlobal
-    | '\x11' -> Ok GetGlobal
-    | '\x12' -> Ok SetGlobal
-    | '\x13' -> Ok GetLocal
-    | '\x14' -> Ok SetLocal
-    | c -> Error c
+  let of_byte : char -> t = Obj.magic
 end
 
 type t = {

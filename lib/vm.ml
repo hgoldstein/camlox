@@ -51,16 +51,9 @@ let rec run vm : (unit, Err.t) result =
     print_stack vm;
     ignore @@ Dbg.disassemble_instruction vm.chunk vm.ip);
   let module Op = Chunk.OpCode in
-  let opcode =
-    match Op.of_byte @@ read_byte vm with
-    | Ok op -> op
-    | Error c ->
-        Printf.eprintf "Unknown bytecode instruction %d" (Char.to_int c);
-        exit 1
-  in
   let flip wrt i = List.length wrt - (Char.to_int i + 1) in
   let res, stack =
-    match (opcode, vm.stack) with
+    match (Op.of_byte @@ read_byte vm, vm.stack) with
     | Op.Return, vs -> (`Return, vs)
     | Op.Constant, vs -> (`Ok, read_constant vm :: vs)
     | Op.Negate, Float f :: vs -> (`Ok, Value.Float (f *. -1.0) :: vs)
