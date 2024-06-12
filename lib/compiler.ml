@@ -300,6 +300,20 @@ and named_variable p tok can_assign =
 
 and variable p can_assign = named_variable p p.previous can_assign
 
+and and_ p _ =
+  let end_jump = emit_jump p Op.JumpIfFalse in
+  emit_opcode p Op.Pop;
+  parse_precedence p Precedence.And;
+  patch_jump p end_jump
+
+and or_ p _ =
+  let else_jump = emit_jump p Op.JumpIfFalse in
+  let end_jump = emit_jump p Op.Jump in
+  patch_jump p else_jump;
+  emit_opcode p Op.Pop;
+  parse_precedence p Precedence.Or;
+  patch_jump p end_jump
+
 and get_rule : Token.kind -> rule =
   let open Precedence in
   let make_rule ?(prefix = None) ?(infix = None) ?(prec = NoPrec) () =
@@ -325,6 +339,8 @@ and get_rule : Token.kind -> rule =
   | Token.LessEqual -> make_rule ~infix:(Some binary) ~prec:Comparison ()
   | Token.String -> make_rule ~prefix:(Some string_) ()
   | Token.Identifier -> make_rule ~prefix:(Some variable) ()
+  | Token.And -> make_rule ~infix:(Some and_) ~prec:And ()
+  | Token.Or -> make_rule ~infix:(Some or_) ~prec:Or ()
   | _ -> make_rule ()
 
 and print_statement p =
