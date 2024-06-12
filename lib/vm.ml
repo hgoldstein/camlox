@@ -119,6 +119,10 @@ let rec run vm : (unit, Err.t) result =
         let offset = read_short vm in
         vm.ip <- vm.ip + offset;
         (`Ok, stack)
+    | Op.Loop, stack ->
+        let offset = read_short vm in
+        vm.ip <- vm.ip - offset;
+        (`Ok, stack)
     (* Error cases *)
     | ( ( Op.Negate | Op.Not | Op.Print | Op.Pop | Op.DefineGlobal
         | Op.SetGlobal | Op.SetLocal | Op.JumpIfFalse ),

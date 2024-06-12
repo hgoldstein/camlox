@@ -98,6 +98,13 @@ let emit_jump parser opcode =
   emit_byte parser '\xFF';
   Vector.length ~vec:parser.chunk.code - 2
 
+let emit_loop parser loop_start =
+  emit_opcode parser Op.Loop;
+  let offset = Vector.length ~vec:parser.chunk.code - loop_start + 2 in
+  if offset > 0xFFFF then error parser "Loop body too large.";
+  emit_byte parser @@ Char.chr ((offset lsr 8) land 0xFF);
+  emit_byte parser @@ Char.chr (offset land 0xFF)
+
 let patch_jump parser offset =
   let jump = Vector.length ~vec:parser.chunk.code - offset - 2 in
   if jump > 0xFFFF then error parser "Too much code to jump over.";
@@ -370,6 +377,63 @@ and if_statement p =
   | _ -> ());
   patch_jump p else_jump
 
+and while_statement p =
+  let loop_start = Vector.length ~vec:p.chunk.code in
+  consume p Token.LeftParen "Expect '(' after 'while'.";
+  expression p;
+  consume p Token.RightParen "Expect ')' after condition.";
+  let exit_jump = emit_jump p Op.JumpIfFalse in
+  emit_opcode p Op.Pop;
+  statement p;
+  emit_loop p loop_start;
+  patch_jump p exit_jump;
+  emit_opcode p Op.Pop
+
+and for_statement p =
+  begin_scope p;
+  consume p Token.LeftParen "Expect '(' after 'for'.";
+  (match p.current.kind with
+  | Token.Semicolon -> advance p (* No initializer *)
+  | Token.Var ->
+      advance p;
+      var_declaration p
+  | _ -> expression_statement p);
+  let loop_start = Vector.length ~vec:p.chunk.code in
+  let exit_jump =
+    match p.current.kind with
+    | Token.Semicolon ->
+        advance p;
+        -1
+    | _ ->
+        expression p;
+        consume p Token.Semicolon "Expect ';'.";
+        let ret = emit_jump p Op.JumpIfFalse in
+        emit_opcode p Op.Pop;
+        ret
+  in
+  let loop_start =
+    match p.current.kind with
+    | Token.RightParen ->
+        advance p;
+        loop_start
+    | _ ->
+        let body_jump = emit_jump p Op.Jump in
+        let increment_start = Vector.length ~vec:p.chunk.code in
+        expression p;
+        emit_opcode p Op.Pop;
+        consume p Token.RightParen "Expect ')' after for clauses.";
+        emit_loop p loop_start;
+        patch_jump p body_jump;
+        increment_start
+  in
+  statement p;
+  emit_loop p loop_start;
+  (* NOTE: This could be more idiomatic *)
+  if exit_jump <> -1 then (
+    patch_jump p exit_jump;
+    emit_opcode p Op.Pop);
+  end_scope p
+
 and statement p =
   match p.current.kind with
   | Token.Print ->
@@ -378,6 +442,12 @@ and statement p =
   | Token.If ->
       advance p;
       if_statement p
+  | Token.While ->
+      advance p;
+      while_statement p
+  | Token.For ->
+      advance p;
+      for_statement p
   | Token.LeftBrace ->
       advance p;
       begin_scope p;
