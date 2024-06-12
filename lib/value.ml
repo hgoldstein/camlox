@@ -8,7 +8,7 @@ let print = function
   | Float f -> Printf.printf "%g" f
   | Bool b -> Printf.printf "%s" (if b then "true" else "false")
   | Nil -> Printf.printf "nil"
-  | Object (String s) -> Printf.printf "\"%s\"" (String_val.get s)
+  | Object (String s) -> Printf.printf "%s" (String_val.get s)
 
 let print_line v =
   print v;

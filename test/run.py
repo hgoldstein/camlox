@@ -41,7 +41,9 @@ Result = NoOutputFile | OutputMismatch | Promoted | None
 
 def has_difft() -> bool:
     try:
-        subprocess.check_call(["difft"])
+        subprocess.check_call(
+            ["difft", "--help"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
         return True
     except FileNotFoundError as e:
         return False
