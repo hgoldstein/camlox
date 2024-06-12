@@ -1,0 +1,12 @@
+var a = true;
+var b = nil;
+var c = 42;
+if (a) {
+  if (b) {
+    print "two!";
+  } else if (c) {
+    print "three!";
+  }
+} else {
+  print "one!";
+}

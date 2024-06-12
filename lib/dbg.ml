@@ -18,6 +18,14 @@ let constant_instruction (chunk : Chunk.t) name offset =
   Printf.printf "\n";
   offset + 2
 
+let jump_instruction (chunk : Chunk.t) name sign offset =
+  let jump =
+    ((Char.code @@ Vector.at ~vec:chunk.code ~index:(offset + 1)) lsl 8)
+    lor (Char.code @@ Vector.at ~vec:chunk.code ~index:(offset + 2))
+  in
+  Printf.printf "%-16s %4d -> %d\n" name offset (offset + 3 + sign + jump);
+  offset + 3
+
 let print_line_number (c : Chunk.t) (offset : int) =
   let f = Vector.at ~vec:c.lines in
   if offset > 0 && f ~index:offset = f ~index:(offset - 1) then
@@ -50,6 +58,8 @@ let disassemble_instruction (c : Chunk.t) (offset : int) : int =
   | Op.SetGlobal -> constant_instruction c "OP_SET_GLOBAL" offset
   | Op.GetLocal -> byte_instruction c "OP_GET_LOCAL" offset
   | Op.SetLocal -> byte_instruction c "OP_SET_LOCAL" offset
+  | Op.JumpIfFalse -> jump_instruction c "OP_JUMP_IF_FALSE" 1 offset
+  | Op.Jump -> jump_instruction c "OP_JUMP" 1 offset
 
 let disassemble_chunk (c : Chunk.t) (name : string) =
   Printf.printf "== %s ==\n" name;

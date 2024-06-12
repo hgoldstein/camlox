@@ -90,7 +90,21 @@ let consume parser k msg : unit =
 let emit_byte parser byte =
   Chunk.write_byte ~chunk:parser.chunk ~byte ~line:parser.previous.line
 
-let emit_opcode parser opcode = emit_byte parser @@ Chunk.OpCode.to_byte opcode
+let emit_opcode parser opcode = emit_byte parser @@ Op.to_byte opcode
+
+let emit_jump parser opcode =
+  emit_opcode parser opcode;
+  emit_byte parser '\xFF';
+  emit_byte parser '\xFF';
+  Vector.length ~vec:parser.chunk.code - 2
+
+let patch_jump parser offset =
+  let jump = Vector.length ~vec:parser.chunk.code - offset - 2 in
+  if jump > 0xFFFF then error parser "Too much code to jump over.";
+  Vector.set ~vec:parser.chunk.code ~index:offset
+    ~value:(Char.chr @@ ((jump lsr 8) land 0xFF));
+  Vector.set ~vec:parser.chunk.code ~index:(offset + 1)
+    ~value:(Char.chr @@ (jump land 0xFF))
 
 let make_constant p value =
   let c = Chunk.add_constant ~chunk:p.chunk ~value in
@@ -323,11 +337,31 @@ and expression_statement p =
   consume p Token.Semicolon "Expect ';' after expression.";
   emit_opcode p Op.Pop
 
+and if_statement p =
+  consume p Token.LeftParen "Expect '(' after 'if'.";
+  expression p;
+  consume p Token.RightParen "Expect ')' after condition.";
+  let then_jump = emit_jump p Op.JumpIfFalse in
+  emit_opcode p Op.Pop;
+  statement p;
+  let else_jump = emit_jump p Op.Jump in
+  patch_jump p then_jump;
+  emit_opcode p Op.Pop;
+  (match p.current.kind with
+  | Token.Else ->
+      advance p;
+      statement p
+  | _ -> ());
+  patch_jump p else_jump
+
 and statement p =
   match p.current.kind with
   | Token.Print ->
       advance p;
       print_statement p
+  | Token.If ->
+      advance p;
+      if_statement p
   | Token.LeftBrace ->
       advance p;
       begin_scope p;

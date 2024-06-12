@@ -17,3 +17,4 @@ let write ~vec ~data =
 
 let at ~vec ~index = Array.get vec.data index
 let length ~vec = vec.count
+let set ~vec ~index ~value = Array.set vec.data index value

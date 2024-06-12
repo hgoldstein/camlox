@@ -15,6 +15,11 @@ let read_byte vm =
   vm.ip <- vm.ip + 1;
   Vector.at ~vec:vm.chunk.code ~index
 
+let read_short vm =
+  let hi_byte = read_byte vm in
+  let lo_byte = read_byte vm in
+  (Char.to_int hi_byte lsl 8) lor Char.to_int lo_byte
+
 let read_constant vm =
   let index = Char.to_int @@ read_byte vm in
   Vector.at ~vec:vm.chunk.constants ~index
@@ -31,13 +36,13 @@ let read_string vm =
         (Printf.sprintf "Expected string constant, got: %s" (Value.show v))
 
 let print_stack vm =
-  Printf.eprintf "          ";
+  Printf.printf "          ";
   List.iter ~f:(fun v ->
-      Printf.eprintf "[ ";
+      Printf.printf "[ ";
       Value.print v;
-      Printf.eprintf " ]")
+      Printf.printf " ]")
   @@ List.rev vm.stack;
-  Printf.eprintf "\n";
+  Printf.printf "\n";
   ()
 
 let runtime_error (vm : t) msg : cycle_result =
@@ -106,9 +111,17 @@ let rec run vm : (unit, Err.t) result =
         let slot = flip stack @@ read_byte vm in
         let f idx v = if idx = slot then top else v in
         (`Ok, List.mapi stack ~f)
+    | Op.JumpIfFalse, (top :: _ as stack) ->
+        let offset = read_short vm in
+        if Value.is_falsey top then vm.ip <- vm.ip + offset;
+        (`Ok, stack)
+    | Op.Jump, stack ->
+        let offset = read_short vm in
+        vm.ip <- vm.ip + offset;
+        (`Ok, stack)
     (* Error cases *)
     | ( ( Op.Negate | Op.Not | Op.Print | Op.Pop | Op.DefineGlobal
-        | Op.SetGlobal | Op.SetLocal ),
+        | Op.SetGlobal | Op.SetLocal | Op.JumpIfFalse ),
         [] ) ->
         fatal_runtime_error vm "Not enough arguments on stack."
     | Op.Negate, stack -> (runtime_error vm "operand must be a number", stack)

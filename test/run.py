@@ -38,12 +38,14 @@ class Promoted(object):
 
 Result = NoOutputFile | OutputMismatch | Promoted | None
 
+
 def has_difft() -> bool:
     try:
-        subprocess.check_call(['difft'])
+        subprocess.check_call(["difft"])
         return True
     except FileNotFoundError as e:
         return False
+
 
 @dataclass
 class Test:
@@ -57,20 +59,34 @@ class Test:
 
     def diff_check_cmd(self) -> list[str]:
         if has_difft():
-            return ["difft", "--exit-code", "--check-only", str(self.expect()), str(self.output())]
+            return [
+                "difft",
+                "--exit-code",
+                "--check-only",
+                str(self.expect()),
+                str(self.output()),
+            ]
         else:
             return ["diff", "--brief", str(self.expect()), str(self.output())]
 
     def has_diff(self) -> bool:
-        return subprocess.run(
-            self.diff_check_cmd(),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        ).returncode != 0
+        return (
+            subprocess.run(
+                self.diff_check_cmd(),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            ).returncode
+            != 0
+        )
 
     def diff_print_cmd(self) -> list[str]:
         if has_difft():
-            return ["difft", "--display=side-by-side-show-both", str(self.expect()), str(self.output())]
+            return [
+                "difft",
+                "--display=side-by-side-show-both",
+                str(self.expect()),
+                str(self.output()),
+            ]
         else:
             return ["diff", "--unified", str(self.expect()), str(self.output())]
 
