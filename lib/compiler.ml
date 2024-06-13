@@ -9,7 +9,7 @@ type parser = {
   mutable panic_mode : bool;
 }
 
-module Op = Chunk.OpCode
+module Op = Opcode
 
 module Precedence = struct
   type t =
@@ -126,7 +126,7 @@ let emit_constant p value =
   emit_byte p c
 
 let number p _ =
-  let value = Value.Float (Float.of_string p.previous.content) in
+  let value = Chunk.Float (Float.of_string p.previous.content) in
   emit_constant p value
 
 let identifier_constant p (token : Token.t) =

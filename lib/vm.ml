@@ -3,9 +3,9 @@ open Core
 type t = {
   chunk : Chunk.t;
   mutable ip : int;
-  mutable stack : Value.t list;
+  mutable stack : Chunk.value list;
   strings : String_arena.t;
-  globals : Value.t Table.t;
+  globals : Chunk.value Table.t;
 }
 
 type cycle_result = [ `Ok | `Error of Err.t | `Return ]
@@ -30,16 +30,16 @@ let fatal_runtime_error (_ : t) msg =
 
 let read_string vm =
   match read_constant vm with
-  | Value.Object (Value.String s) -> s
+  | Chunk.Object (Chunk.String s) -> s
   | v ->
       fatal_runtime_error vm
-        (Printf.sprintf "Expected string constant, got: %s" (Value.show v))
+        (Printf.sprintf "Expected string constant, got: %s" (Chunk.show_value v))
 
 let print_stack vm =
   Printf.printf "          ";
   List.iter ~f:(fun v ->
       Printf.printf "[ ";
-      Value.print v;
+      Chunk.print_value v;
       Printf.printf " ]")
   @@ List.rev vm.stack;
   Printf.printf "\n";
@@ -55,13 +55,13 @@ let rec run vm : (unit, Err.t) result =
   if Dbg.on () then (
     print_stack vm;
     ignore @@ Dbg.disassemble_instruction vm.chunk vm.ip);
-  let module Op = Chunk.OpCode in
+  let module Op = Opcode in
   let flip wrt i = List.length wrt - (Char.to_int i + 1) in
   let res, stack =
     match (Op.of_byte @@ read_byte vm, vm.stack) with
     | Op.Return, vs -> (`Return, vs)
     | Op.Constant, vs -> (`Ok, read_constant vm :: vs)
-    | Op.Negate, Float f :: vs -> (`Ok, Value.Float (f *. -1.0) :: vs)
+    | Op.Negate, Float f :: vs -> (`Ok, Chunk.Float (f *. -1.0) :: vs)
     | Op.Add, Float b :: Float a :: stack -> (`Ok, Float (a +. b) :: stack)
     | Op.Add, Object (String b) :: Object (String a) :: stack ->
         let a_chars = String_val.get a in
@@ -70,17 +70,17 @@ let rec run vm : (unit, Err.t) result =
     | Op.Subtract, Float b :: Float a :: stack -> (`Ok, Float (a -. b) :: stack)
     | Op.Divide, Float b :: Float a :: stack -> (`Ok, Float (a /. b) :: stack)
     | Op.Multiply, Float b :: Float a :: stack -> (`Ok, Float (a *. b) :: stack)
-    | Op.Nil, stack -> (`Ok, Value.Nil :: stack)
-    | Op.True, stack -> (`Ok, Value.Bool true :: stack)
-    | Op.False, stack -> (`Ok, Value.Bool false :: stack)
-    | Op.Not, v :: vs -> (`Ok, Value.Bool (Value.is_falsey v) :: vs)
-    | Op.Equal, b :: a :: stack -> (`Ok, Value.Bool (Value.equal a b) :: stack)
+    | Op.Nil, stack -> (`Ok, Chunk.Nil :: stack)
+    | Op.True, stack -> (`Ok, Chunk.Bool true :: stack)
+    | Op.False, stack -> (`Ok, Chunk.Bool false :: stack)
+    | Op.Not, v :: vs -> (`Ok, Chunk.Bool (Chunk.is_falsey v) :: vs)
+    | Op.Equal, b :: a :: stack -> (`Ok, Chunk.Bool (Chunk.equal a b) :: stack)
     | Op.Greater, Float b :: Float a :: stack ->
-        (`Ok, Value.Bool (Float.compare a b > 0) :: stack)
+        (`Ok, Chunk.Bool (Float.compare a b > 0) :: stack)
     | Op.Less, Float b :: Float a :: stack ->
-        (`Ok, Value.Bool (Float.compare a b < 0) :: stack)
+        (`Ok, Chunk.Bool (Float.compare a b < 0) :: stack)
     | Op.Print, v :: stack ->
-        Value.print_line v;
+        Chunk.print_line v;
         (`Ok, stack)
     | Op.Pop, _ :: stack -> (`Ok, stack)
     | Op.DefineGlobal, value :: stack ->
@@ -113,7 +113,7 @@ let rec run vm : (unit, Err.t) result =
         (`Ok, List.mapi stack ~f)
     | Op.JumpIfFalse, (top :: _ as stack) ->
         let offset = read_short vm in
-        if Value.is_falsey top then vm.ip <- vm.ip + offset;
+        if Chunk.is_falsey top then vm.ip <- vm.ip + offset;
         (`Ok, stack)
     | Op.Jump, stack ->
         let offset = read_short vm in

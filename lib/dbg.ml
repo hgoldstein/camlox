@@ -14,7 +14,7 @@ let byte_instruction (chunk : Chunk.t) name offset =
 let constant_instruction (chunk : Chunk.t) name offset =
   let const = Char.code @@ Vector.at ~vec:chunk.code ~index:(offset + 1) in
   Printf.printf "%-16s %4d " name const;
-  Value.print @@ Vector.at ~vec:chunk.constants ~index:const;
+  Chunk.print_value @@ Vector.at ~vec:chunk.constants ~index:const;
   Printf.printf "\n";
   offset + 2
 
@@ -33,7 +33,7 @@ let print_line_number (c : Chunk.t) (offset : int) =
   else Printf.printf "%4d " (f ~index:offset)
 
 let disassemble_instruction (c : Chunk.t) (offset : int) : int =
-  let module Op = Chunk.OpCode in
+  let module Op = Opcode in
   Printf.printf "%04d " offset;
   print_line_number c offset;
   match Op.of_byte (Vector.at ~vec:c.code ~index:offset) with
