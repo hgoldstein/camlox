@@ -1,6 +1,6 @@
-type parser = {
+type t = {
   scanner : Scanner.t;
-  chunk : Chunk.t;
+  output : Chunk.function_;
   arena : String_arena.t;
   local_tracker : Locals.t;
   mutable previous : Token.t;
@@ -47,8 +47,8 @@ module Precedence = struct
 end
 
 type rule = {
-  prefix : (parser -> bool -> unit) option;
-  infix : (parser -> bool -> unit) option;
+  prefix : (t -> bool -> unit) option;
+  infix : (t -> bool -> unit) option;
   precedence : Precedence.t;
 }
 
@@ -87,8 +87,10 @@ let consume parser k msg : unit =
       ()
   | _ -> error_at_current parser msg
 
+let code_size parser = Vector.length ~vec:parser.output.chunk.code
+
 let emit_byte parser byte =
-  Chunk.write_byte ~chunk:parser.chunk ~byte ~line:parser.previous.line
+  Chunk.write_byte ~chunk:parser.output.chunk ~byte ~line:parser.previous.line
 
 let emit_opcode parser opcode = emit_byte parser @@ Op.to_byte opcode
 
@@ -96,25 +98,25 @@ let emit_jump parser opcode =
   emit_opcode parser opcode;
   emit_byte parser '\xFF';
   emit_byte parser '\xFF';
-  Vector.length ~vec:parser.chunk.code - 2
+  code_size parser - 2
 
 let emit_loop parser loop_start =
   emit_opcode parser Op.Loop;
-  let offset = Vector.length ~vec:parser.chunk.code - loop_start + 2 in
+  let offset = code_size parser - loop_start + 2 in
   if offset > 0xFFFF then error parser "Loop body too large.";
   emit_byte parser @@ Char.chr ((offset lsr 8) land 0xFF);
   emit_byte parser @@ Char.chr (offset land 0xFF)
 
 let patch_jump parser offset =
-  let jump = Vector.length ~vec:parser.chunk.code - offset - 2 in
+  let jump = code_size parser - offset - 2 in
   if jump > 0xFFFF then error parser "Too much code to jump over.";
-  Vector.set ~vec:parser.chunk.code ~index:offset
+  Vector.set ~vec:parser.output.chunk.code ~index:offset
     ~value:(Char.chr @@ ((jump lsr 8) land 0xFF));
-  Vector.set ~vec:parser.chunk.code ~index:(offset + 1)
+  Vector.set ~vec:parser.output.chunk.code ~index:(offset + 1)
     ~value:(Char.chr @@ (jump land 0xFF))
 
 let make_constant p value =
-  let c = Chunk.add_constant ~chunk:p.chunk ~value in
+  let c = Chunk.add_constant ~chunk:p.output.chunk ~value in
   if c > 0xFF then (
     error p "Too many constants in one chunk.";
     Char.chr 0)
@@ -179,7 +181,11 @@ let define_variable p global =
 
 let end_compiler p =
   emit_opcode p Op.Return;
-  if Dbg.on () && not p.had_error then Dbg.disassemble_chunk p.chunk "code"
+  if Dbg.on () && not p.had_error then
+    let name =
+      match p.output.name with None -> "<script>" | Some f -> String_val.get f
+    in
+    Dbg.disassemble_chunk p.output.chunk name
 
 let begin_scope p = Locals.begin_scope p.local_tracker
 
@@ -378,7 +384,7 @@ and if_statement p =
   patch_jump p else_jump
 
 and while_statement p =
-  let loop_start = Vector.length ~vec:p.chunk.code in
+  let loop_start = code_size p in
   consume p Token.LeftParen "Expect '(' after 'while'.";
   expression p;
   consume p Token.RightParen "Expect ')' after condition.";
@@ -398,7 +404,7 @@ and for_statement p =
       advance p;
       var_declaration p
   | _ -> expression_statement p);
-  let loop_start = Vector.length ~vec:p.chunk.code in
+  let loop_start = code_size p in
   let exit_jump =
     match p.current.kind with
     | Token.Semicolon ->
@@ -418,7 +424,7 @@ and for_statement p =
         loop_start
     | _ ->
         let body_jump = emit_jump p Op.Jump in
-        let increment_start = Vector.length ~vec:p.chunk.code in
+        let increment_start = code_size p in
         expression p;
         emit_opcode p Op.Pop;
         consume p Token.RightParen "Expect ')' after for clauses.";
@@ -490,11 +496,12 @@ and declarations p =
       if p.panic_mode then synchronize p;
       declarations p
 
-let compile (source : string) : (Chunk.t * String_arena.t, Err.t) result =
-  let p : parser =
+let compile (source : string) : (Chunk.function_ * String_arena.t, Err.t) result
+    =
+  let p : t =
     {
       scanner = Scanner.of_string source;
-      chunk = Chunk.make ();
+      output = { chunk = Chunk.make (); arity = 0; name = None };
       arena = Table.make ();
       local_tracker = Locals.make ();
       previous = Token.{ content = ""; kind = Token.Error; line = -1 };
@@ -503,7 +510,9 @@ let compile (source : string) : (Chunk.t * String_arena.t, Err.t) result =
       panic_mode = false;
     }
   in
+  p.local_tracker.locals <-
+    [ { name = { content = ""; kind = Token.Error; line = -1 }; depth = 0 } ];
   advance p;
   declarations p;
   end_compiler p;
-  if p.had_error then Error Err.Compile else Ok (p.chunk, p.arena)
+  if p.had_error then Error Err.Compile else Ok (p.output, p.arena)

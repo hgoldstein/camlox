@@ -150,4 +150,4 @@ let interpret_chunk (chunk : Chunk.t) (arena : String_arena.t) :
 let interpret source =
   match Compiler.compile source with
   | Error e -> Error e
-  | Ok (chunk, arena) -> interpret_chunk chunk arena
+  | Ok (out, arena) -> interpret_chunk out.chunk arena

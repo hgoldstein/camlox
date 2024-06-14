@@ -6,10 +6,8 @@ type t = {
   lines : int Vector.t;
 }
 
-and obj =
-  | String of String_val.t
-  | Function of { arity : int; chunk : t; name : String_val.t }
-
+and function_ = { arity : int; chunk : t; name : String_val.t option }
+and obj = String of String_val.t | Function of function_
 and value = Float of float | Bool of bool | Nil | Object of obj
 
 let show_value = function
@@ -17,7 +15,9 @@ let show_value = function
   | Bool b -> Printf.sprintf "%s" (if b then "true" else "false")
   | Nil -> Printf.sprintf "nil"
   | Object (String s) -> Printf.sprintf "%s" (String_val.get s)
-  | Object (Function f) -> Printf.sprintf "<fn %s>" (String_val.get f.name)
+  | Object (Function { name = Some f; _ }) ->
+      Printf.sprintf "<fn %s>" (String_val.get f)
+  | Object (Function { name = None; _ }) -> "<script>"
 
 let print_value v = Printf.printf "%s" @@ show_value v
 
