@@ -1,12 +1,20 @@
 type compiler = {
   output : Chunk.function_;
-  local_tracker : Locals.t; (* encloses : compiler option; *)
+  local_tracker : Locals.t;
+  encloses : compiler option; [@warning "-69"]
 }
+
+let make_compiler ~encloses ~arity ~name : compiler =
+  {
+    output = { chunk = Chunk.make (); arity; name };
+    local_tracker = Locals.make ();
+    encloses;
+  }
 
 type parser = {
   scanner : Scanner.t;
-  compiler : compiler;
   arena : String_arena.t;
+  mutable compiler : compiler;
   mutable previous : Token.t;
   mutable current : Token.t;
   mutable had_error : bool;
@@ -138,7 +146,7 @@ let number p _ =
   emit_constant p value
 
 let identifier_constant (p : parser) (token : Token.t) =
-  make_constant p @@ String_arena.get p.arena token.content
+  make_constant p @@ String_arena.value p.arena token.content
 
 let add_local p =
   if List.length p.compiler.local_tracker.locals > 255 then
@@ -190,7 +198,6 @@ let define_variable p global =
 
 let end_compiler p =
   emit_opcode p Op.Return;
-  let fn = p.compiler.output in
   (if Dbg.on () && not p.had_error then
      let name =
        match p.compiler.output.name with
@@ -198,7 +205,7 @@ let end_compiler p =
        | Some f -> String_val.get f
      in
      Dbg.disassemble_chunk p.compiler.output.chunk name);
-  fn
+  p.compiler.output
 
 let begin_scope p = Locals.begin_scope p.compiler.local_tracker
 
@@ -301,7 +308,7 @@ and literal parser _ =
 and string_ parser _ =
   let v = parser.previous.content in
   emit_constant parser
-  @@ String_arena.get parser.arena
+  @@ String_arena.value parser.arena
   @@ String.sub v 1 (String.length v - 2)
 
 and named_variable p tok can_assign =
@@ -492,11 +499,51 @@ and var_declaration p =
   consume p Token.Semicolon "Expect ; after variable declaration";
   define_variable p global
 
+and function_ p =
+  let compiler =
+    make_compiler ~encloses:(Some p.compiler) ~arity:0
+      ~name:(Some (String_arena.get p.arena p.previous.content))
+  in
+  let old_compiler = p.compiler in
+  p.compiler <- compiler;
+  let rec collect_arguments arity =
+    let arity = arity + 1 in
+    if arity > 255 then
+      error_at_current p "Cannot have more than 255 parameters.";
+    let c = parse_variable p "Expect parameter name." in
+    define_variable p c;
+    match p.current.kind with
+    | Token.Comma ->
+        advance p;
+        collect_arguments arity
+    | _ -> arity
+  in
+  begin_scope p;
+  consume p Token.LeftParen "Expect '(' after function name.";
+  let arity =
+    match p.current.kind with Token.RightParen -> 0 | _ -> collect_arguments 0
+  in
+  consume p Token.RightParen "Expect ')' after parameters.";
+  consume p Token.LeftBrace "Expect '{' before function body";
+  block p;
+  let fn = end_compiler p in
+  p.compiler <- old_compiler;
+  emit_constant p @@ Chunk.Object (Chunk.Function { fn with arity })
+
+and fun_declaration p =
+  let global = parse_variable p "Expect function name." in
+  mark_initialized p.compiler;
+  function_ p;
+  define_variable p global
+
 and declaration p =
   match p.current.kind with
   | Token.Var ->
       advance p;
       var_declaration p
+  | Token.Fun ->
+      advance p;
+      fun_declaration p
   | _ -> statement p
 
 and declarations p =
@@ -514,12 +561,7 @@ let compile (source : string) : (Chunk.function_ * String_arena.t, Err.t) result
   let p : parser =
     {
       scanner = Scanner.of_string source;
-      compiler =
-        {
-          output = { chunk = Chunk.make (); arity = 0; name = None };
-          local_tracker = Locals.make ();
-          (* encloses = None; *)
-        };
+      compiler = make_compiler ~arity:0 ~name:None ~encloses:None;
       arena = Table.make ();
       previous = Token.{ content = ""; kind = Token.Error; line = -1 };
       current = Token.{ content = ""; kind = Token.Error; line = -1 };

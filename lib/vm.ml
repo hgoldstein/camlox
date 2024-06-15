@@ -77,7 +77,7 @@ let rec run vm : (unit, Err.t) result =
     | Op.Add, Object (String b) :: Object (String a) :: stack ->
         let a_chars = String_val.get a in
         let b_chars = String_val.get b in
-        (`Ok, String_arena.get vm.strings (a_chars ^ b_chars) :: stack)
+        (`Ok, String_arena.value vm.strings (a_chars ^ b_chars) :: stack)
     | Op.Subtract, Float b :: Float a :: stack -> (`Ok, Float (a -. b) :: stack)
     | Op.Divide, Float b :: Float a :: stack -> (`Ok, Float (a /. b) :: stack)
     | Op.Multiply, Float b :: Float a :: stack -> (`Ok, Float (a *. b) :: stack)

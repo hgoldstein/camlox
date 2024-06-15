@@ -1,0 +1,5 @@
+fun areWeHavingFunYet() {
+  print "yes, we are!";
+}
+
+print areWeHavingFunYet;
