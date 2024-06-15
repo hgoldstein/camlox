@@ -1,8 +1,12 @@
-type t = {
-  scanner : Scanner.t;
+type compiler = {
   output : Chunk.function_;
+  local_tracker : Locals.t; (* encloses : compiler option; *)
+}
+
+type parser = {
+  scanner : Scanner.t;
+  compiler : compiler;
   arena : String_arena.t;
-  local_tracker : Locals.t;
   mutable previous : Token.t;
   mutable current : Token.t;
   mutable had_error : bool;
@@ -47,8 +51,8 @@ module Precedence = struct
 end
 
 type rule = {
-  prefix : (t -> bool -> unit) option;
-  infix : (t -> bool -> unit) option;
+  prefix : (parser -> bool -> unit) option;
+  infix : (parser -> bool -> unit) option;
   precedence : Precedence.t;
 }
 
@@ -87,10 +91,12 @@ let consume parser k msg : unit =
       ()
   | _ -> error_at_current parser msg
 
-let code_size parser = Vector.length ~vec:parser.output.chunk.code
+let code_size (parser : parser) =
+  Vector.length ~vec:parser.compiler.output.chunk.code
 
-let emit_byte parser byte =
-  Chunk.write_byte ~chunk:parser.output.chunk ~byte ~line:parser.previous.line
+let emit_byte (parser : parser) byte =
+  Chunk.write_byte ~chunk:parser.compiler.output.chunk ~byte
+    ~line:parser.previous.line
 
 let emit_opcode parser opcode = emit_byte parser @@ Op.to_byte opcode
 
@@ -110,19 +116,19 @@ let emit_loop parser loop_start =
 let patch_jump parser offset =
   let jump = code_size parser - offset - 2 in
   if jump > 0xFFFF then error parser "Too much code to jump over.";
-  Vector.set ~vec:parser.output.chunk.code ~index:offset
+  Vector.set ~vec:parser.compiler.output.chunk.code ~index:offset
     ~value:(Char.chr @@ ((jump lsr 8) land 0xFF));
-  Vector.set ~vec:parser.output.chunk.code ~index:(offset + 1)
+  Vector.set ~vec:parser.compiler.output.chunk.code ~index:(offset + 1)
     ~value:(Char.chr @@ (jump land 0xFF))
 
-let make_constant p value =
-  let c = Chunk.add_constant ~chunk:p.output.chunk ~value in
+let make_constant (p : parser) value =
+  let c = Chunk.add_constant ~chunk:p.compiler.output.chunk ~value in
   if c > 0xFF then (
     error p "Too many constants in one chunk.";
     Char.chr 0)
   else Char.chr c
 
-let emit_constant p value =
+let emit_constant (p : parser) value =
   let c = make_constant p value in
   emit_opcode p Op.Constant;
   emit_byte p c
@@ -131,15 +137,16 @@ let number p _ =
   let value = Chunk.Float (Float.of_string p.previous.content) in
   emit_constant p value
 
-let identifier_constant p (token : Token.t) =
+let identifier_constant (p : parser) (token : Token.t) =
   make_constant p @@ String_arena.get p.arena token.content
 
 let add_local p =
-  if List.length p.local_tracker.locals > 255 then
+  if List.length p.compiler.local_tracker.locals > 255 then
     error p "Too many local variables in function."
   else
-    p.local_tracker.locals <-
-      Locals.{ depth = -1; name = p.previous } :: p.local_tracker.locals
+    p.compiler.local_tracker.locals <-
+      Locals.{ depth = -1; name = p.previous }
+      :: p.compiler.local_tracker.locals
 
 let identifiers_equal (a : Token.t) (b : Token.t) =
   String.equal a.content b.content
@@ -148,57 +155,63 @@ let declare_variable p =
   let rec detect_duplicate : Locals.local list -> unit = function
     | [] -> ()
     | l :: ls ->
-        if l.depth <> -1 && l.depth < p.local_tracker.scope_depth then ()
+        if l.depth <> -1 && l.depth < p.compiler.local_tracker.scope_depth then
+          ()
         else if identifiers_equal l.name p.previous then
           error p "Already a variable with this name in this scope."
         else detect_duplicate ls
   in
-  if p.local_tracker.scope_depth = 0 then ()
+  if p.compiler.local_tracker.scope_depth = 0 then ()
   else (
-    detect_duplicate p.local_tracker.locals;
+    detect_duplicate p.compiler.local_tracker.locals;
     add_local p)
 
 let parse_variable p msg =
   consume p Token.Identifier msg;
   declare_variable p;
-  if p.local_tracker.scope_depth > 0 then Char.chr 0
+  if p.compiler.local_tracker.scope_depth > 0 then Char.chr 0
   else identifier_constant p p.previous
 
-let mark_initialized p =
-  match p.local_tracker.locals with
-  | [] ->
-      failwith
-        "Attempted to mark a variable initialized with an empty local stack."
-  | x :: xs ->
-      p.local_tracker.locals <-
-        { x with depth = p.local_tracker.scope_depth } :: xs
+let mark_initialized c =
+  if c.local_tracker.scope_depth <> 0 then
+    match c.local_tracker.locals with
+    | [] ->
+        failwith
+          "Attempted to mark a variable initialized with an empty local stack."
+    | x :: xs ->
+        c.local_tracker.locals <-
+          { x with depth = c.local_tracker.scope_depth } :: xs
 
 let define_variable p global =
-  if p.local_tracker.scope_depth > 0 then mark_initialized p
+  if p.compiler.local_tracker.scope_depth > 0 then mark_initialized p.compiler
   else (
     emit_opcode p Op.DefineGlobal;
     emit_byte p global)
 
 let end_compiler p =
   emit_opcode p Op.Return;
-  if Dbg.on () && not p.had_error then
-    let name =
-      match p.output.name with None -> "<script>" | Some f -> String_val.get f
-    in
-    Dbg.disassemble_chunk p.output.chunk name
+  let fn = p.compiler.output in
+  (if Dbg.on () && not p.had_error then
+     let name =
+       match p.compiler.output.name with
+       | None -> "<script>"
+       | Some f -> String_val.get f
+     in
+     Dbg.disassemble_chunk p.compiler.output.chunk name);
+  fn
 
-let begin_scope p = Locals.begin_scope p.local_tracker
+let begin_scope p = Locals.begin_scope p.compiler.local_tracker
 
 let end_scope p =
-  Locals.end_scope p.local_tracker;
+  Locals.end_scope p.compiler.local_tracker;
   let rec pop_locals : Locals.local list -> Locals.local list = function
     | [] -> []
-    | l :: ls when l.depth <= p.local_tracker.scope_depth -> l :: ls
+    | l :: ls when l.depth <= p.compiler.local_tracker.scope_depth -> l :: ls
     | _ :: ls ->
         emit_opcode p Op.Pop;
         pop_locals ls
   in
-  p.local_tracker.locals <- pop_locals p.local_tracker.locals
+  p.compiler.local_tracker.locals <- pop_locals p.compiler.local_tracker.locals
 
 let synchronize p =
   p.panic_mode <- false;
@@ -299,7 +312,7 @@ and named_variable p tok can_assign =
         else resolve_local ls
   in
   let arg, get_op, set_op =
-    let arg = resolve_local p.local_tracker.locals in
+    let arg = resolve_local p.compiler.local_tracker.locals in
     if arg <> -1 then (Char.chr arg, Op.GetLocal, Op.SetLocal)
     else (identifier_constant p tok, Op.GetGlobal, Op.SetGlobal)
   in
@@ -395,7 +408,7 @@ and while_statement p =
   patch_jump p exit_jump;
   emit_opcode p Op.Pop
 
-and for_statement p =
+and for_statement (p : parser) =
   begin_scope p;
   consume p Token.LeftParen "Expect '(' after 'for'.";
   (match p.current.kind with
@@ -498,21 +511,25 @@ and declarations p =
 
 let compile (source : string) : (Chunk.function_ * String_arena.t, Err.t) result
     =
-  let p : t =
+  let p : parser =
     {
       scanner = Scanner.of_string source;
-      output = { chunk = Chunk.make (); arity = 0; name = None };
+      compiler =
+        {
+          output = { chunk = Chunk.make (); arity = 0; name = None };
+          local_tracker = Locals.make ();
+          (* encloses = None; *)
+        };
       arena = Table.make ();
-      local_tracker = Locals.make ();
       previous = Token.{ content = ""; kind = Token.Error; line = -1 };
       current = Token.{ content = ""; kind = Token.Error; line = -1 };
       had_error = false;
       panic_mode = false;
     }
   in
-  p.local_tracker.locals <-
+  p.compiler.local_tracker.locals <-
     [ { name = { content = ""; kind = Token.Error; line = -1 }; depth = 0 } ];
   advance p;
   declarations p;
-  end_compiler p;
-  if p.had_error then Error Err.Compile else Ok (p.output, p.arena)
+  let output = end_compiler p in
+  if p.had_error then Error Err.Compile else Ok (output, p.arena)
