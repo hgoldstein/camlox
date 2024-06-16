@@ -1,11 +1,13 @@
 #!/usr/bin/env python
 
 import argparse
+import asyncio
 import logging
 import os
 import pathlib
 import shutil
 import subprocess
+import functools
 from typing import Generator
 from dataclasses import dataclass
 
@@ -19,6 +21,16 @@ ch = logging.StreamHandler()
 ch.setLevel(logging.DEBUG)
 ch.setFormatter(formatter)
 log.addHandler(ch)
+
+
+@functools.cache
+def get_exec() -> pathlib.Path:
+    p = ROOT
+    while p != pathlib.Path("/"):
+        if (p / "dune-project").exists():
+            return p / "_build" / "default" / "bin" / "main.exe"
+        p = p.parent
+    assert False, "Could not find repo root"
 
 
 @dataclass
@@ -39,6 +51,7 @@ class Promoted(object):
 Result = NoOutputFile | OutputMismatch | Promoted | None
 
 
+@functools.cache
 def has_difft() -> bool:
     try:
         subprocess.check_call(
@@ -98,17 +111,20 @@ class Test:
     def name(self) -> str:
         return str(self.file.relative_to(os.getcwd()))
 
-    def run(self, promote: bool) -> Result:
-        proc = subprocess.run(
-            ["dune", "exec", "--display=quiet", "camlox", self.file],
+    async def run(self, promote: bool) -> Result:
+        proc = await asyncio.subprocess.create_subprocess_exec(
+            str(get_exec()),
+            self.file,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
         )
 
-        if not self.expect().exists() and not promote:
-            return NoOutputFile(output=proc.stdout.decode())
+        stdout, _ = await proc.communicate()
 
-        out = proc.stdout.decode()
+        if not self.expect().exists() and not promote:
+            return NoOutputFile(output=stdout.decode())
+
+        out = stdout.decode()
         if proc.returncode != 0:
             out += f"[{proc.returncode}]\n"
 
@@ -139,9 +155,10 @@ def tests_from_file_list(files: list[str]) -> Generator[Test, None, None]:
 
 def run_tests(files: list[str], promote: bool) -> bool:
     failed = False
-    for test in tests_from_file_list(files) if len(files) > 0 else generate_tests():
+    async def run_single(t: Test) -> None:
+        global log, failed
         log.debug(f"Running `{test.name()}'")
-        match r := test.run(promote):
+        match r := await test.run(promote):
             case None:
                 log.debug(f"`{test.name()}' passed")
             case Promoted():
@@ -154,6 +171,11 @@ def run_tests(files: list[str], promote: bool) -> bool:
                 log.error(f"`{test.name()}' failed, no output file")
                 log.info(f"`{test.name()}' output:\n{r.output}")
                 failed = True
+
+    with asyncio.Runner() as runner:
+        for test in tests_from_file_list(files) if len(files) > 0 else generate_tests():
+            runner.run(run_single(test))
+
     return failed
 
 
@@ -161,7 +183,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("files", nargs="*")
     parser.add_argument("-p", "--promote", action="store_true")
+    parser.add_argument("--loglevel", "-l", default="INFO")
     args = parser.parse_args()
+    log.setLevel(args.loglevel.upper())
     if run_tests(args.files, args.promote):
         exit(1)
     else:
