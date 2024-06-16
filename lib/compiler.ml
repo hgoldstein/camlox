@@ -347,13 +347,37 @@ and or_ p _ =
   parse_precedence p Precedence.Or;
   patch_jump p end_jump
 
+and argument_list p =
+  let rec gather_args count =
+    expression p;
+    if count = 255 then error p "Can't have more than 255 arguments.";
+    match p.current.kind with
+    | Token.Comma ->
+        advance p;
+        gather_args (count + 1)
+    | _ -> count
+  in
+  let count =
+    match p.current.kind with
+    | Token.RightParen -> 0
+    | _ -> gather_args 1 (* We know at least one arg will follow *)
+  in
+  consume p Token.RightParen "Expect ')' after arguments.";
+  Char.chr count
+
+and call p _ =
+  let arg_count = argument_list p in
+  emit_opcode p Op.Call;
+  emit_byte p arg_count
+
 and get_rule : Token.kind -> rule =
   let open Precedence in
   let make_rule ?(prefix = None) ?(infix = None) ?(prec = NoPrec) () =
     { prefix; infix; precedence = prec }
   in
   function
-  | Token.LeftParen -> make_rule ~prefix:(Some grouping) ()
+  | Token.LeftParen ->
+      make_rule ~prefix:(Some grouping) ~infix:(Some call) ~prec:Call ()
   | Token.Minus ->
       make_rule ~prefix:(Some unary) ~infix:(Some binary) ~prec:Term ()
   | Token.Plus -> make_rule ~infix:(Some binary) ~prec:Term ()

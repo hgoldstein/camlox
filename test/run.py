@@ -96,7 +96,7 @@ class Test:
         subprocess.run(self.diff_print_cmd())
 
     def name(self) -> str:
-        return str(self.file.relative_to(ROOT))
+        return str(self.file.relative_to(os.getcwd()))
 
     def run(self, promote: bool) -> Result:
         proc = subprocess.run(
@@ -140,12 +140,12 @@ def tests_from_file_list(files: list[str]) -> Generator[Test, None, None]:
 def run_tests(files: list[str], promote: bool) -> bool:
     failed = False
     for test in tests_from_file_list(files) if len(files) > 0 else generate_tests():
-        log.info(f"Running `{test.name()}'")
+        log.debug(f"Running `{test.name()}'")
         match r := test.run(promote):
             case None:
-                log.info(f"`{test.name()}' passed")
+                log.debug(f"`{test.name()}' passed")
             case Promoted():
-                log.info(f"`{test.name()}' promoted output to expected.")
+                log.debug(f"`{test.name()}' promoted output to expected.")
             case OutputMismatch():
                 log.error(f"`{test.name()}' failed, output mismatch:")
                 test.print_diff()

@@ -2,8 +2,8 @@ open Core
 
 type call_frame = {
   function_ : Chunk.function_;
-  mutable ip : int;
   mutable stack : Chunk.value list;
+  mutable ip : int;
 }
 
 type t = {
@@ -134,6 +134,7 @@ let rec run vm : (unit, Err.t) result =
         let offset = read_short vm in
         frame.ip <- frame.ip - offset;
         (`Ok, stack)
+    | Op.Call, _ -> failwith "unimplemented"
     (* Error cases *)
     | ( ( Op.Negate | Op.Not | Op.Print | Op.Pop | Op.DefineGlobal
         | Op.SetGlobal | Op.SetLocal | Op.JumpIfFalse ),
