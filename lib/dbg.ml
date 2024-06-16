@@ -61,7 +61,7 @@ let disassemble_instruction (c : Chunk.t) (offset : int) : int =
   | Op.JumpIfFalse -> jump_instruction c "OP_JUMP_IF_FALSE" 1 offset
   | Op.Jump -> jump_instruction c "OP_JUMP" 1 offset
   | Op.Loop -> jump_instruction c "OP_LOOP" (-1) offset
-  | Op.Call -> failwith "unimplemented"
+  | Op.Call -> byte_instruction c "OP_CALL" offset
 
 let disassemble_chunk (c : Chunk.t) (name : string) =
   Printf.printf "== %s ==\n" name;

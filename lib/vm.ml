@@ -9,18 +9,16 @@ type call_frame = {
 type t = {
   strings : String_arena.t;
   globals : Chunk.value Table.t;
-  frames : call_frame list;
+  mutable frame : call_frame;
+  mutable frame_stack : call_frame list;
 }
 
-type cycle_result = [ `Ok | `Error of Err.t | `Return ]
-
-let hd vm = List.hd_exn vm.frames
+type cycle_result = [ `Ok | `Error of Err.t | `End ]
 
 let read_byte vm =
-  let frame = hd vm in
-  let index = frame.ip in
-  frame.ip <- frame.ip + 1;
-  Vector.at ~vec:frame.function_.chunk.code ~index
+  let index = vm.frame.ip in
+  vm.frame.ip <- vm.frame.ip + 1;
+  Vector.at ~vec:vm.frame.function_.chunk.code ~index
 
 let read_short vm =
   let hi_byte = read_byte vm in
@@ -28,9 +26,8 @@ let read_short vm =
   (Char.to_int hi_byte lsl 8) lor Char.to_int lo_byte
 
 let read_constant vm =
-  let frame = hd vm in
   let index = Char.to_int @@ read_byte vm in
-  Vector.at ~vec:frame.function_.chunk.constants ~index
+  Vector.at ~vec:vm.frame.function_.chunk.constants ~index
 
 let fatal_runtime_error (_ : t) msg =
   Printf.eprintf "FATAL: %s\n" msg;
@@ -44,33 +41,69 @@ let read_string vm =
         (Printf.sprintf "Expected string constant, got: %s" (Chunk.show_value v))
 
 let print_stack vm =
-  let frame = hd vm in
   Printf.printf "          ";
   List.iter ~f:(fun v ->
       Printf.printf "[ ";
       Chunk.print_value v;
       Printf.printf " ]")
-  @@ List.rev frame.stack;
+  @@ List.rev vm.frame.stack;
   Printf.printf "\n";
   ()
 
 let runtime_error (vm : t) msg : cycle_result =
-  let frame = hd vm in
+  let print_frame frame =
+    Printf.eprintf "[line %d] in "
+      (Vector.at ~vec:frame.function_.chunk.lines ~index:(frame.ip - 1));
+    match frame.function_.name with
+    | None -> Printf.eprintf "script\n"
+    | Some s -> Printf.eprintf "%s()\n" (String_val.get s)
+  in
+  let print_frames = List.iter ~f:print_frame in
   Printf.eprintf "%s\n" msg;
-  let line = Vector.at ~vec:frame.function_.chunk.lines ~index:frame.ip in
-  Printf.eprintf "[line %d] in script\n" line;
+  print_frame vm.frame;
+  print_frames vm.frame_stack;
   `Error Err.Runtime
 
-let rec run vm : (unit, Err.t) result =
-  let frame = hd vm in
+let push_frame vm frame =
+  vm.frame_stack <- vm.frame :: vm.frame_stack;
+  vm.frame <- frame
+
+let rec run (vm : t) : (unit, Err.t) result =
   if Dbg.on () then (
     print_stack vm;
-    ignore @@ Dbg.disassemble_instruction frame.function_.chunk frame.ip);
+    ignore @@ Dbg.disassemble_instruction vm.frame.function_.chunk vm.frame.ip);
   let module Op = Opcode in
   let flip wrt i = List.length wrt - (Char.to_int i + 1) in
+  let call_value vm stack callee arg_count =
+    match callee with
+    | Chunk.Object (Chunk.Function function_) ->
+        if arg_count <> function_.arity then
+          ( runtime_error vm
+            @@ Printf.sprintf "Expected %d arguments but got %d" function_.arity
+                 arg_count,
+            stack )
+        else
+          let new_stack = List.take stack (arg_count + 1) in
+          push_frame vm
+          @@ {
+               ip = 0;
+               function_;
+               stack =
+                 []
+                 (* We take every argument *and* one more for the function object*);
+             };
+          (`Ok, new_stack)
+    | _ -> (runtime_error vm "Can only call functions and classes.", stack)
+  in
   let res, stack =
-    match (Op.of_byte @@ read_byte vm, frame.stack) with
-    | Op.Return, vs -> (`Return, vs)
+    match (Op.of_byte @@ read_byte vm, vm.frame.stack) with
+    | Op.Return, result :: _ -> (
+        match vm.frame_stack with
+        | [] -> (`End, []) (* End of execution *)
+        | f :: fs ->
+            vm.frame <- f;
+            vm.frame_stack <- fs;
+            (`Ok, result :: vm.frame.stack))
     | Op.Constant, vs -> (`Ok, read_constant vm :: vs)
     | Op.Negate, Float f :: vs -> (`Ok, Chunk.Float (f *. -1.0) :: vs)
     | Op.Add, Float b :: Float a :: stack -> (`Ok, Float (a +. b) :: stack)
@@ -124,20 +157,23 @@ let rec run vm : (unit, Err.t) result =
         (`Ok, List.mapi stack ~f)
     | Op.JumpIfFalse, (top :: _ as stack) ->
         let offset = read_short vm in
-        if Chunk.is_falsey top then frame.ip <- frame.ip + offset;
+        if Chunk.is_falsey top then vm.frame.ip <- vm.frame.ip + offset;
         (`Ok, stack)
     | Op.Jump, stack ->
         let offset = read_short vm in
-        frame.ip <- frame.ip + offset;
+        vm.frame.ip <- vm.frame.ip + offset;
         (`Ok, stack)
     | Op.Loop, stack ->
         let offset = read_short vm in
-        frame.ip <- frame.ip - offset;
+        vm.frame.ip <- vm.frame.ip - offset;
         (`Ok, stack)
-    | Op.Call, _ -> failwith "unimplemented"
+    | Op.Call, stack ->
+        let arg_count = read_byte vm in
+        let callee = List.nth_exn stack @@ flip stack arg_count in
+        call_value vm stack callee (Char.to_int arg_count)
     (* Error cases *)
     | ( ( Op.Negate | Op.Not | Op.Print | Op.Pop | Op.DefineGlobal
-        | Op.SetGlobal | Op.SetLocal | Op.JumpIfFalse ),
+        | Op.SetGlobal | Op.SetLocal | Op.JumpIfFalse | Op.Return ),
         [] ) ->
         fatal_runtime_error vm "Not enough arguments on stack."
     | Op.Negate, stack -> (runtime_error vm "operand must be a number", stack)
@@ -152,8 +188,8 @@ let rec run vm : (unit, Err.t) result =
     | (Op.Subtract | Op.Divide | Op.Multiply), vs ->
         (runtime_error vm "operands must be two numbers", vs)
   in
-  frame.stack <- stack;
-  match res with `Error e -> Error e | `Ok -> run vm | `Return -> Ok ()
+  vm.frame.stack <- stack;
+  match res with `Error e -> Error e | `Ok -> run vm | `End -> Ok ()
 
 let interpret_function (function_ : Chunk.function_) (strings : String_arena.t)
     : (unit, Err.t) result =
@@ -161,14 +197,13 @@ let interpret_function (function_ : Chunk.function_) (strings : String_arena.t)
   @@ {
        strings;
        globals = Table.make ();
-       frames =
-         [
-           {
-             function_;
-             ip = 0;
-             stack = [ Chunk.Object (Chunk.Function function_) ];
-           };
-         ];
+       frame =
+         {
+           function_;
+           ip = 0;
+           stack = [ Chunk.Object (Chunk.Function function_) ];
+         };
+       frame_stack = [];
      }
 
 let interpret source =

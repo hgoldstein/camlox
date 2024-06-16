@@ -197,6 +197,7 @@ let define_variable p global =
     emit_byte p global)
 
 let end_compiler p =
+  emit_opcode p Op.Nil;
   emit_opcode p Op.Return;
   (if Dbg.on () && not p.had_error then
      let name =

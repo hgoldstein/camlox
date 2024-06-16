@@ -1,0 +1,5 @@
+fun noReturn() {
+  print "Do stuff!";
+}
+
+print noReturn();
