@@ -7,7 +7,12 @@ type t = {
 }
 
 and function_ = { arity : int; chunk : t; name : String_val.t option }
-and obj = String of String_val.t | Function of function_
+
+and obj =
+  | String of String_val.t
+  | Function of function_
+  | Native of (int -> value list -> value)
+
 and value = Float of float | Bool of bool | Nil | Object of obj
 
 let show_value = function
@@ -18,6 +23,7 @@ let show_value = function
   | Object (Function { name = Some f; _ }) ->
       Printf.sprintf "<fn %s>" (String_val.get f)
   | Object (Function { name = None; _ }) -> "<script>"
+  | Object (Native _) -> "<native>"
 
 let print_value v = Printf.printf "%s" @@ show_value v
 

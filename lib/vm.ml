@@ -33,6 +33,10 @@ let fatal_runtime_error (_ : t) msg =
   Printf.eprintf "FATAL: %s\n" msg;
   exit 2
 
+let define_native vm name defn =
+  let name = String_arena.get vm.strings name in
+  Table.set vm.globals name (Chunk.Object (Chunk.Native defn))
+
 let read_string vm =
   match read_constant vm with
   | Chunk.Object (Chunk.String s) -> s
@@ -64,18 +68,22 @@ let runtime_error (vm : t) msg : cycle_result =
   print_frames vm.frame_stack;
   `Error Err.Runtime
 
-let push_frame vm frame =
-  vm.frame_stack <- vm.frame :: vm.frame_stack;
-  vm.frame <- frame
-
 let rec run (vm : t) : (unit, Err.t) result =
   if Dbg.on () then (
     print_stack vm;
     ignore @@ Dbg.disassemble_instruction vm.frame.function_.chunk vm.frame.ip);
   let module Op = Opcode in
-  let flip wrt i = List.length wrt - (Char.to_int i + 1) in
+  let nth_from_back wrt i = List.length wrt - Char.to_int i - 1 in
+  let push_frame vm frame =
+    vm.frame_stack <- vm.frame :: vm.frame_stack;
+    vm.frame <- frame
+  in
   let call_value vm stack callee arg_count =
     match callee with
+    | Chunk.Object (Chunk.Native fn) ->
+        let new_stack, old_stack = List.split_n stack (arg_count + 1) in
+        let result = fn arg_count new_stack in
+        (`Ok, result :: old_stack)
     | Chunk.Object (Chunk.Function function_) ->
         if arg_count <> function_.arity then
           ( runtime_error vm
@@ -83,14 +91,14 @@ let rec run (vm : t) : (unit, Err.t) result =
                  arg_count,
             stack )
         else
-          let new_stack = List.take stack (arg_count + 1) in
+          let new_stack, old_stack = List.split_n stack (arg_count + 1) in
+          vm.frame.stack <- old_stack;
           push_frame vm
           @@ {
                ip = 0;
                function_;
-               stack =
-                 []
-                 (* We take every argument *and* one more for the function object*);
+               stack = [];
+               (* We take every argument *and* one more for the function object*)
              };
           (`Ok, new_stack)
     | _ -> (runtime_error vm "Can only call functions and classes.", stack)
@@ -149,10 +157,10 @@ let rec run (vm : t) : (unit, Err.t) result =
           Table.set vm.globals name v;
           (`Ok, v :: stack))
     | Op.GetLocal, stack ->
-        let slot = flip stack @@ read_byte vm in
+        let slot = nth_from_back stack @@ read_byte vm in
         (`Ok, List.nth_exn stack slot :: stack)
     | Op.SetLocal, (top :: _ as stack) ->
-        let slot = flip stack @@ read_byte vm in
+        let slot = nth_from_back stack @@ read_byte vm in
         let f idx v = if idx = slot then top else v in
         (`Ok, List.mapi stack ~f)
     | Op.JumpIfFalse, (top :: _ as stack) ->
@@ -168,9 +176,12 @@ let rec run (vm : t) : (unit, Err.t) result =
         vm.frame.ip <- vm.frame.ip - offset;
         (`Ok, stack)
     | Op.Call, stack ->
-        let arg_count = read_byte vm in
-        let callee = List.nth_exn stack @@ flip stack arg_count in
-        call_value vm stack callee (Char.to_int arg_count)
+        let arg_count = Char.to_int @@ read_byte vm in
+        (* This is meant to be `peek(n)`, which for a stack is equivalent to 
+         * `List.nth`
+         *)
+        let callee = List.nth_exn stack arg_count in
+        call_value vm stack callee arg_count
     (* Error cases *)
     | ( ( Op.Negate | Op.Not | Op.Print | Op.Pop | Op.DefineGlobal
         | Op.SetGlobal | Op.SetLocal | Op.JumpIfFalse | Op.Return ),
@@ -193,18 +204,25 @@ let rec run (vm : t) : (unit, Err.t) result =
 
 let interpret_function (function_ : Chunk.function_) (strings : String_arena.t)
     : (unit, Err.t) result =
-  run
-  @@ {
-       strings;
-       globals = Table.make ();
-       frame =
-         {
-           function_;
-           ip = 0;
-           stack = [ Chunk.Object (Chunk.Function function_) ];
-         };
-       frame_stack = [];
-     }
+  let clock _ _ =
+    Chunk.Float
+      (Int63.to_float (Time_now.nanoseconds_since_unix_epoch ()) /. 1e9)
+  in
+  let vm =
+    {
+      strings;
+      globals = Table.make ();
+      frame =
+        {
+          function_;
+          ip = 0;
+          stack = [ Chunk.Object (Chunk.Function function_) ];
+        };
+      frame_stack = [];
+    }
+  in
+  define_native vm "clock" clock;
+  run vm
 
 let interpret source =
   match Compiler.compile source with

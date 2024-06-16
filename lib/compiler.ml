@@ -5,11 +5,13 @@ type compiler = {
 }
 
 let make_compiler ~encloses ~arity ~name : compiler =
-  {
-    output = { chunk = Chunk.make (); arity; name };
-    local_tracker = Locals.make ();
-    encloses;
-  }
+  let local_tracker = Locals.make () in
+  (* Initialize the local tracker with a "hidden" local, representing the
+   * function objects we push onto the stack.
+   *)
+  local_tracker.locals <-
+    [ { name = { content = ""; kind = Token.Error; line = -1 }; depth = 0 } ];
+  { output = { chunk = Chunk.make (); arity; name }; local_tracker; encloses }
 
 type parser = {
   scanner : Scanner.t;
@@ -485,6 +487,18 @@ and for_statement (p : parser) =
     emit_opcode p Op.Pop);
   end_scope p
 
+and return_statement p =
+  if Option.is_none p.compiler.output.name then
+    error p "Can't return from top-level code.";
+  match p.current.kind with
+  | Token.Semicolon ->
+      advance p;
+      emit_opcode p Op.Return
+  | _ ->
+      expression p;
+      consume p Token.Semicolon "Expect ';' after return value.";
+      emit_opcode p Op.Return
+
 and statement p =
   match p.current.kind with
   | Token.Print ->
@@ -496,6 +510,9 @@ and statement p =
   | Token.While ->
       advance p;
       while_statement p
+  | Token.Return ->
+      advance p;
+      return_statement p
   | Token.For ->
       advance p;
       for_statement p
@@ -594,8 +611,6 @@ let compile (source : string) : (Chunk.function_ * String_arena.t, Err.t) result
       panic_mode = false;
     }
   in
-  p.compiler.local_tracker.locals <-
-    [ { name = { content = ""; kind = Token.Error; line = -1 }; depth = 0 } ];
   advance p;
   declarations p;
   let output = end_compiler p in
