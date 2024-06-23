@@ -320,16 +320,16 @@ and string_ parser _ =
   @@ String.sub v 1 (String.length v - 2)
 
 and named_variable p tok can_assign =
-  let rec resolve_local : Locals.local list -> int = function
-    | [] -> -1
+  let rec resolve_local : Locals.local list -> int option = function
+    | [] -> None
     | l :: ls ->
-        if identifiers_equal tok l.name then List.length ls
+        if identifiers_equal tok l.name then Some (List.length ls)
         else resolve_local ls
   in
   let arg, get_op, set_op =
-    let arg = resolve_local p.compiler.local_tracker.locals in
-    if arg <> -1 then (Char.chr arg, Op.GetLocal, Op.SetLocal)
-    else (identifier_constant p tok, Op.GetGlobal, Op.SetGlobal)
+    match resolve_local p.compiler.local_tracker.locals with
+    | Some arg -> (Char.chr arg, Op.GetLocal, Op.SetLocal)
+    | None -> (identifier_constant p tok, Op.GetGlobal, Op.SetGlobal)
   in
   (match p.current.kind with
   | Token.Equal when can_assign ->
