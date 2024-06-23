@@ -7,22 +7,29 @@ type t = {
 }
 
 and function_ = { arity : int; chunk : t; name : String_val.t option }
+and closure = { function_ : function_ }
 
 and obj =
   | String of String_val.t
   | Function of function_
+  | Closure of closure
   | Native of (int -> value list -> value)
 
 and value = Float of float | Bool of bool | Nil | Object of obj
 
-let show_value = function
+let show_value =
+  let show_function ({ name; _ } : function_) =
+    match name with
+    | Some f -> Printf.sprintf "<fn %s>" (String_val.get f)
+    | None -> "<script>"
+  in
+  function
   | Float f -> Printf.sprintf "%g" f
   | Bool b -> Printf.sprintf "%s" (if b then "true" else "false")
   | Nil -> Printf.sprintf "nil"
   | Object (String s) -> Printf.sprintf "%s" (String_val.get s)
-  | Object (Function { name = Some f; _ }) ->
-      Printf.sprintf "<fn %s>" (String_val.get f)
-  | Object (Function { name = None; _ }) -> "<script>"
+  | Object (Function f) -> show_function f
+  | Object (Closure { function_ }) -> show_function function_
   | Object (Native _) -> "<native>"
 
 let print_value v = Printf.printf "%s" @@ show_value v

@@ -1,3 +1,5 @@
+open Core
+
 let state = ref false
 let on () = !state
 let enable () = state := true
@@ -7,12 +9,12 @@ let simple_instruction name offset =
   offset + 1
 
 let byte_instruction (chunk : Chunk.t) name offset =
-  let byte = Char.code @@ Vector.at ~vec:chunk.code ~index:(offset + 1) in
+  let byte = Char.to_int @@ Vector.at ~vec:chunk.code ~index:(offset + 1) in
   Printf.printf "%-16s %4d\n" name byte;
   offset + 2
 
 let constant_instruction (chunk : Chunk.t) name offset =
-  let const = Char.code @@ Vector.at ~vec:chunk.code ~index:(offset + 1) in
+  let const = Char.to_int @@ Vector.at ~vec:chunk.code ~index:(offset + 1) in
   Printf.printf "%-16s %4d " name const;
   Chunk.print_value @@ Vector.at ~vec:chunk.constants ~index:const;
   Printf.printf "\n";
@@ -20,8 +22,8 @@ let constant_instruction (chunk : Chunk.t) name offset =
 
 let jump_instruction (chunk : Chunk.t) name sign offset =
   let jump =
-    ((Char.code @@ Vector.at ~vec:chunk.code ~index:(offset + 1)) lsl 8)
-    lor (Char.code @@ Vector.at ~vec:chunk.code ~index:(offset + 2))
+    ((Char.to_int @@ Vector.at ~vec:chunk.code ~index:(offset + 1)) lsl 8)
+    lor (Char.to_int @@ Vector.at ~vec:chunk.code ~index:(offset + 2))
   in
   Printf.printf "%-16s %4d -> %d\n" name offset (offset + 3 + (sign * jump));
   offset + 3
@@ -62,6 +64,12 @@ let disassemble_instruction (c : Chunk.t) (offset : int) : int =
   | Op.Jump -> jump_instruction c "OP_JUMP" 1 offset
   | Op.Loop -> jump_instruction c "OP_LOOP" (-1) offset
   | Op.Call -> byte_instruction c "OP_CALL" offset
+  | Op.Closure ->
+      let constant = Char.to_int @@ Vector.at ~vec:c.code ~index:(offset + 1) in
+      Printf.printf "%-16s %4d " "OP_CLOSURE" constant;
+      Chunk.print_value @@ Vector.at ~vec:c.constants ~index:constant;
+      Printf.printf "\n";
+      offset + 2
 
 let disassemble_chunk (c : Chunk.t) (name : string) =
   Printf.printf "== %s ==\n" name;

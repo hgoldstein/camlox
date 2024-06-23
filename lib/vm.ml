@@ -1,7 +1,7 @@
 open Core
 
 type call_frame = {
-  function_ : Chunk.function_;
+  closure : Chunk.closure;
   mutable stack : Chunk.value list;
   mutable ip : int;
 }
@@ -18,7 +18,7 @@ type cycle_result = [ `Ok | `Error of Err.t | `End ]
 let read_byte vm =
   let index = vm.frame.ip in
   vm.frame.ip <- vm.frame.ip + 1;
-  Vector.at ~vec:vm.frame.function_.chunk.code ~index
+  Vector.at ~vec:vm.frame.closure.function_.chunk.code ~index
 
 let read_short vm =
   let hi_byte = read_byte vm in
@@ -27,7 +27,7 @@ let read_short vm =
 
 let read_constant vm =
   let index = Char.to_int @@ read_byte vm in
-  Vector.at ~vec:vm.frame.function_.chunk.constants ~index
+  Vector.at ~vec:vm.frame.closure.function_.chunk.constants ~index
 
 let fatal_runtime_error (_ : t) msg =
   Printf.eprintf "FATAL: %s\n" msg;
@@ -57,8 +57,8 @@ let print_stack vm =
 let runtime_error (vm : t) msg : cycle_result =
   let print_frame frame =
     Printf.eprintf "[line %d] in "
-      (Vector.at ~vec:frame.function_.chunk.lines ~index:(frame.ip - 1));
-    match frame.function_.name with
+      (Vector.at ~vec:frame.closure.function_.chunk.lines ~index:(frame.ip - 1));
+    match frame.closure.function_.name with
     | None -> Printf.eprintf "script\n"
     | Some s -> Printf.eprintf "%s()\n" (String_val.get s)
   in
@@ -71,7 +71,8 @@ let runtime_error (vm : t) msg : cycle_result =
 let rec run (vm : t) : (unit, Err.t) result =
   if Dbg.on () then (
     print_stack vm;
-    ignore @@ Dbg.disassemble_instruction vm.frame.function_.chunk vm.frame.ip);
+    ignore
+    @@ Dbg.disassemble_instruction vm.frame.closure.function_.chunk vm.frame.ip);
   let module Op = Opcode in
   let nth_from_back wrt i = List.length wrt - Char.to_int i - 1 in
   let push_frame vm frame =
@@ -84,11 +85,11 @@ let rec run (vm : t) : (unit, Err.t) result =
         let new_stack, old_stack = List.split_n stack (arg_count + 1) in
         let result = fn arg_count new_stack in
         (`Ok, result :: old_stack)
-    | Chunk.Object (Chunk.Function function_) ->
-        if arg_count <> function_.arity then
+    | Chunk.Object (Chunk.Closure closure) ->
+        if arg_count <> closure.function_.arity then
           ( runtime_error vm
-            @@ Printf.sprintf "Expected %d arguments but got %d" function_.arity
-                 arg_count,
+            @@ Printf.sprintf "Expected %d arguments but got %d"
+                 closure.function_.arity arg_count,
             stack )
         else
           let new_stack, old_stack = List.split_n stack (arg_count + 1) in
@@ -96,7 +97,7 @@ let rec run (vm : t) : (unit, Err.t) result =
           push_frame vm
           @@ {
                ip = 0;
-               function_;
+               closure;
                stack = [];
                (* We take every argument *and* one more for the function object*)
              };
@@ -182,6 +183,13 @@ let rec run (vm : t) : (unit, Err.t) result =
          *)
         let callee = List.nth_exn stack arg_count in
         call_value vm stack callee arg_count
+    | Op.Closure, stack -> (
+        match read_constant vm with
+        | Chunk.Object (Chunk.Function function_) ->
+            (`Ok, Chunk.Object (Chunk.Closure { function_ }) :: stack)
+        | v ->
+            fatal_runtime_error vm
+              ("Cannot make into closure: " ^ Chunk.show_value v))
     (* Error cases *)
     | ( ( Op.Negate | Op.Not | Op.Print | Op.Pop | Op.DefineGlobal
         | Op.SetGlobal | Op.SetLocal | Op.JumpIfFalse | Op.Return ),
@@ -208,16 +216,13 @@ let interpret_function (function_ : Chunk.function_) (strings : String_arena.t)
     Chunk.Float
       (Int63.to_float (Time_now.nanoseconds_since_unix_epoch ()) /. 1e9)
   in
+  let closure = Chunk.{ function_ } in
   let vm =
     {
       strings;
       globals = Table.make ();
       frame =
-        {
-          function_;
-          ip = 0;
-          stack = [ Chunk.Object (Chunk.Function function_) ];
-        };
+        { closure; ip = 0; stack = [ Chunk.Object (Chunk.Closure closure) ] };
       frame_stack = [];
     }
   in

@@ -143,6 +143,11 @@ let emit_constant (p : parser) value =
   emit_opcode p Op.Constant;
   emit_byte p c
 
+let emit_closure (p : parser) value =
+  let c = make_constant p value in
+  emit_opcode p Op.Closure;
+  emit_byte p c
+
 let number p _ =
   let value = Chunk.Float (Float.of_string p.previous.content) in
   emit_constant p value
@@ -570,7 +575,7 @@ and function_ p =
   block p;
   let fn = end_compiler p in
   p.compiler <- old_compiler;
-  emit_constant p @@ Chunk.Object (Chunk.Function { fn with arity })
+  emit_closure p @@ Chunk.Object (Chunk.Function { fn with arity })
 
 and fun_declaration p =
   let global = parse_variable p "Expect function name." in
