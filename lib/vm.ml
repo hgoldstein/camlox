@@ -206,6 +206,8 @@ let rec run (vm : t) : (unit, Err.t) result =
         (runtime_error vm "operands must be numbers", vs)
     | (Op.Subtract | Op.Divide | Op.Multiply), vs ->
         (runtime_error vm "operands must be two numbers", vs)
+    | (Op.GetUpvalue | Op.SetUpvalue), _ ->
+        fatal_runtime_error vm "Unimplemented."
   in
   vm.frame.stack <- stack;
   match res with `Error e -> Error e | `Ok -> run vm | `End -> Ok ()

@@ -64,12 +64,28 @@ let disassemble_instruction (c : Chunk.t) (offset : int) : int =
   | Op.Jump -> jump_instruction c "OP_JUMP" 1 offset
   | Op.Loop -> jump_instruction c "OP_LOOP" (-1) offset
   | Op.Call -> byte_instruction c "OP_CALL" offset
-  | Op.Closure ->
+  | Op.GetUpvalue -> byte_instruction c "OP_GET_UPVALUE" offset
+  | Op.SetUpvalue -> byte_instruction c "OP_SET_UPVALUE" offset
+  | Op.Closure -> (
       let constant = Char.to_int @@ Vector.at ~vec:c.code ~index:(offset + 1) in
+      let value = Vector.at ~vec:c.constants ~index:constant in
       Printf.printf "%-16s %4d " "OP_CLOSURE" constant;
-      Chunk.print_value @@ Vector.at ~vec:c.constants ~index:constant;
+      Chunk.print_value @@ value;
       Printf.printf "\n";
-      offset + 2
+      match value with
+      | Chunk.Object (Chunk.Function function_) ->
+          let rec print_captures j offset =
+            if j >= function_.upvalue_count then offset
+            else
+              let is_local = Vector.at ~vec:c.code ~index:offset in
+              let index = Vector.at ~vec:c.code ~index:(offset + 1) in
+              Printf.printf "%04d      |                     %s %d\n" offset
+                (if Char.equal is_local '\x01' then "local" else "upvalue")
+                (Char.to_int index);
+              print_captures (j + 1) (offset + 2)
+          in
+          print_captures 0 (offset + 2)
+      | v -> failwith ("Unexpected closure argument: " ^ Chunk.show_value v))
 
 let disassemble_chunk (c : Chunk.t) (name : string) =
   Printf.printf "== %s ==\n" name;

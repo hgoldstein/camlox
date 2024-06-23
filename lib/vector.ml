@@ -18,3 +18,10 @@ let write ~vec ~data =
 let at ~vec ~index = Array.get vec.data index
 let length ~vec = vec.count
 let set ~vec ~index ~value = Array.set vec.data index value
+
+let set_extend ~vec ~index ~value =
+  if index < vec.count then set ~vec ~index ~value
+  else if index > vec.count then
+    failwith
+      (Printf.sprintf "Index, %d, out of bounds (count = %d)" index vec.count)
+  else write ~vec ~data:value

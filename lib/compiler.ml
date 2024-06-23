@@ -1,7 +1,10 @@
+type upvalue = { is_local : bool; index : char }
+
 type compiler = {
   output : Chunk.function_;
   local_tracker : Locals.t;
   encloses : compiler option; [@warning "-69"]
+  upvalues : upvalue Vector.t;
 }
 
 let make_compiler ~encloses ~arity ~name : compiler =
@@ -11,7 +14,12 @@ let make_compiler ~encloses ~arity ~name : compiler =
    *)
   local_tracker.locals <-
     [ { name = { content = ""; kind = Token.Error; line = -1 }; depth = 0 } ];
-  { output = { chunk = Chunk.make (); arity; name }; local_tracker; encloses }
+  {
+    output = { chunk = Chunk.make (); arity; name; upvalue_count = 0 };
+    local_tracker;
+    encloses;
+    upvalues = Vector.empty ();
+  }
 
 type parser = {
   scanner : Scanner.t;
@@ -319,6 +327,27 @@ and string_ parser _ =
   @@ String_arena.value parser.arena
   @@ String.sub v 1 (String.length v - 2)
 
+and add_upvalue p compiler uv_index is_local =
+  let upvalue_count = compiler.output.upvalue_count in
+  let rec find_existing_upvalue i =
+    if i < 0 then None
+    else
+      let uv = Vector.at ~vec:compiler.upvalues ~index:i in
+      if uv.index = uv_index && Bool.equal uv.is_local is_local then Some i
+      else find_existing_upvalue (i - 1)
+  in
+  match find_existing_upvalue (upvalue_count - 1) with
+  | None ->
+      if upvalue_count > 0xFF then (
+        error p "Too many closure variables in function";
+        0)
+      else (
+        Vector.set_extend ~vec:compiler.upvalues ~index:upvalue_count
+          ~value:{ is_local; index = uv_index };
+        compiler.output.upvalue_count <- upvalue_count + 1;
+        upvalue_count)
+  | Some existing_uv_index -> existing_uv_index
+
 and named_variable p tok can_assign =
   let rec resolve_local : Locals.local list -> int option = function
     | [] -> None
@@ -326,10 +355,27 @@ and named_variable p tok can_assign =
         if identifiers_equal tok l.name then Some (List.length ls)
         else resolve_local ls
   in
+  let rec resolve_upvalue compiler =
+    let open Core in
+    match compiler.encloses with
+    | None -> None
+    | Some enclosing -> (
+        match resolve_local enclosing.local_tracker.locals with
+        | Some local ->
+            Some (add_upvalue p compiler (Char.of_int_exn local) true)
+        | None -> (
+            match resolve_upvalue enclosing with
+            | None -> None
+            | Some uv ->
+                Some (add_upvalue p compiler (Char.of_int_exn uv) false)))
+  in
   let arg, get_op, set_op =
     match resolve_local p.compiler.local_tracker.locals with
     | Some arg -> (Char.chr arg, Op.GetLocal, Op.SetLocal)
-    | None -> (identifier_constant p tok, Op.GetGlobal, Op.SetGlobal)
+    | None -> (
+        match resolve_upvalue p.compiler with
+        | Some arg -> (Char.chr arg, Op.GetUpvalue, Op.SetUpvalue)
+        | None -> (identifier_constant p tok, Op.GetGlobal, Op.SetGlobal))
   in
   (match p.current.kind with
   | Token.Equal when can_assign ->
@@ -575,7 +621,12 @@ and function_ p =
   block p;
   let fn = end_compiler p in
   p.compiler <- old_compiler;
-  emit_closure p @@ Chunk.Object (Chunk.Function { fn with arity })
+  emit_closure p @@ Chunk.Object (Chunk.Function { fn with arity });
+  for i = 0 to fn.upvalue_count - 1 do
+    let uv = Vector.at ~vec:compiler.upvalues ~index:i in
+    emit_byte p @@ if uv.is_local then '\x01' else '\x00';
+    emit_byte p uv.index
+  done
 
 and fun_declaration p =
   let global = parse_variable p "Expect function name." in

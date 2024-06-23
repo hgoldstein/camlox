@@ -6,7 +6,13 @@ type t = {
   lines : int Vector.t;
 }
 
-and function_ = { arity : int; chunk : t; name : String_val.t option }
+and function_ = {
+  arity : int;
+  chunk : t;
+  name : String_val.t option;
+  mutable upvalue_count : int;
+}
+
 and closure = { function_ : function_ }
 
 and obj =
