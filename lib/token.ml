@@ -39,6 +39,8 @@ type kind =
   | While
   | Error
   | Eof
-[@@deriving show]
+[@@deriving show, ord]
+
+let equal a b = compare_kind a b = 0
 
 type t = { content : string; kind : kind; line : int }

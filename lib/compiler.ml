@@ -1,3 +1,5 @@
+open Core
+
 type upvalue = { is_local : bool; index : char }
 
 type compiler = {
@@ -104,7 +106,7 @@ let advance parser =
 
 let consume parser k msg : unit =
   match parser.current.kind with
-  | k' when k = k' ->
+  | k' when Token.equal k k' ->
       advance parser;
       ()
   | _ -> error_at_current parser msg
@@ -128,23 +130,23 @@ let emit_loop parser loop_start =
   emit_opcode parser Op.Loop;
   let offset = code_size parser - loop_start + 2 in
   if offset > 0xFFFF then error parser "Loop body too large.";
-  emit_byte parser @@ Char.chr ((offset lsr 8) land 0xFF);
-  emit_byte parser @@ Char.chr (offset land 0xFF)
+  emit_byte parser @@ Char.of_int_exn ((offset lsr 8) land 0xFF);
+  emit_byte parser @@ Char.of_int_exn (offset land 0xFF)
 
 let patch_jump parser offset =
   let jump = code_size parser - offset - 2 in
   if jump > 0xFFFF then error parser "Too much code to jump over.";
   Vector.set ~vec:parser.compiler.output.chunk.code ~index:offset
-    ~value:(Char.chr @@ ((jump lsr 8) land 0xFF));
+    ~value:(Char.of_int_exn @@ ((jump lsr 8) land 0xFF));
   Vector.set ~vec:parser.compiler.output.chunk.code ~index:(offset + 1)
-    ~value:(Char.chr @@ (jump land 0xFF))
+    ~value:(Char.of_int_exn @@ (jump land 0xFF))
 
 let make_constant (p : parser) value =
   let c = Chunk.add_constant ~chunk:p.compiler.output.chunk ~value in
   if c > 0xFF then (
     error p "Too many constants in one chunk.";
-    Char.chr 0)
-  else Char.chr c
+    '\x00')
+  else Char.of_int_exn c
 
 let emit_constant (p : parser) value =
   let c = make_constant p value in
@@ -192,7 +194,7 @@ let declare_variable p =
 let parse_variable p msg =
   consume p Token.Identifier msg;
   declare_variable p;
-  if p.compiler.local_tracker.scope_depth > 0 then Char.chr 0
+  if p.compiler.local_tracker.scope_depth > 0 then '\x00'
   else identifier_constant p p.previous
 
 let mark_initialized c =
@@ -325,7 +327,7 @@ and string_ parser _ =
   let v = parser.previous.content in
   emit_constant parser
   @@ String_arena.value parser.arena
-  @@ String.sub v 1 (String.length v - 2)
+  @@ String.sub v ~pos:1 ~len:(String.length v - 2)
 
 and add_upvalue p compiler uv_index is_local =
   let upvalue_count = compiler.output.upvalue_count in
@@ -333,7 +335,8 @@ and add_upvalue p compiler uv_index is_local =
     if i < 0 then None
     else
       let uv = Vector.at ~vec:compiler.upvalues ~index:i in
-      if uv.index = uv_index && Bool.equal uv.is_local is_local then Some i
+      if Char.equal uv.index uv_index && Bool.equal uv.is_local is_local then
+        Some i
       else find_existing_upvalue (i - 1)
   in
   match find_existing_upvalue (upvalue_count - 1) with
@@ -371,10 +374,10 @@ and named_variable p tok can_assign =
   in
   let arg, get_op, set_op =
     match resolve_local p.compiler.local_tracker.locals with
-    | Some arg -> (Char.chr arg, Op.GetLocal, Op.SetLocal)
+    | Some arg -> (Char.of_int_exn arg, Op.GetLocal, Op.SetLocal)
     | None -> (
         match resolve_upvalue p.compiler with
-        | Some arg -> (Char.chr arg, Op.GetUpvalue, Op.SetUpvalue)
+        | Some arg -> (Char.of_int_exn arg, Op.GetUpvalue, Op.SetUpvalue)
         | None -> (identifier_constant p tok, Op.GetGlobal, Op.SetGlobal))
   in
   (match p.current.kind with
@@ -417,7 +420,7 @@ and argument_list p =
     | _ -> gather_args 1 (* We know at least one arg will follow *)
   in
   consume p Token.RightParen "Expect ')' after arguments.";
-  Char.chr count
+  Char.of_int_exn count
 
 and call p _ =
   let arg_count = argument_list p in
