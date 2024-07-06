@@ -14,7 +14,7 @@ and function_ = {
   mutable upvalue_count : int;
 }
 
-and closure = { function_ : function_ }
+and closure = { function_ : function_; upvalues : value Array.t }
 
 and obj =
   | String of String_val.t
@@ -41,7 +41,7 @@ let show_value =
   | Nil -> Printf.sprintf "nil"
   | Object (String s) -> Printf.sprintf "%s" (String_val.get s)
   | Object (Function f) -> show_function f
-  | Object (Closure { function_ }) -> show_function function_
+  | Object (Closure { function_; _ }) -> show_function function_
   | Object (Native _) -> "<native>"
 
 let print_value v = Printf.printf "%s" @@ show_value v

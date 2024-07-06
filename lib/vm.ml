@@ -194,13 +194,42 @@ let rec run (vm : t) : (unit, Err.t) result =
     | Op.Closure, stack -> (
         match read_constant vm with
         | Chunk.Object (Chunk.Function function_) ->
-            (`Ok, Chunk.obj (Chunk.Closure { function_ }) :: stack)
+            let upvalues =
+              Array.create ~len:function_.upvalue_count (ref Chunk.Nil)
+            in
+            let rec collect_upvals i =
+              if i < Array.length upvalues then (
+                let is_local = read_byte vm in
+                let index = read_byte vm in
+                let uv =
+                  match is_local with
+                  | '\x00' ->
+                      Array.get vm.frame.closure.upvalues (Char.to_int index)
+                  | _ -> List.nth_exn stack @@ nth_from_back stack index
+                in
+                Array.set upvalues i uv;
+                collect_upvals (i + 1))
+              else ()
+            in
+            collect_upvals 0;
+            (`Ok, Chunk.obj (Chunk.Closure { function_; upvalues }) :: stack)
         | v ->
             fatal_runtime_error vm
               ("Cannot make into closure: " ^ Chunk.show_value v))
+    | Op.GetUpvalue, stack ->
+        let slot = read_byte vm in
+        (* NOTE: I think this is the correct semantics ... *)
+        let v = !(Array.get vm.frame.closure.upvalues (Char.to_int slot)) in
+        (`Ok, ref v :: stack)
+    | Op.SetUpvalue, (top :: _ as stack) ->
+        let slot = read_byte vm in
+        let uv = Array.get vm.frame.closure.upvalues (Char.to_int slot) in
+        uv := !top;
+        (`Ok, stack)
     (* Error cases *)
     | ( ( Op.Negate | Op.Not | Op.Print | Op.Pop | Op.DefineGlobal
-        | Op.SetGlobal | Op.SetLocal | Op.JumpIfFalse | Op.Return ),
+        | Op.SetGlobal | Op.SetLocal | Op.JumpIfFalse | Op.Return
+        | Op.SetUpvalue ),
         [] ) ->
         fatal_runtime_error vm "Not enough arguments on stack."
     | Op.Negate, stack -> (runtime_error vm "operand must be a number", stack)
@@ -214,8 +243,6 @@ let rec run (vm : t) : (unit, Err.t) result =
         (runtime_error vm "operands must be numbers", vs)
     | (Op.Subtract | Op.Divide | Op.Multiply), vs ->
         (runtime_error vm "operands must be two numbers", vs)
-    | (Op.GetUpvalue | Op.SetUpvalue), _ ->
-        fatal_runtime_error vm "Unimplemented."
   in
   vm.frame.stack <- stack;
   match res with `Error e -> Error e | `Ok -> run vm | `End -> Ok ()
@@ -226,7 +253,13 @@ let interpret_function (function_ : Chunk.function_) (strings : String_arena.t)
     Chunk.float
       (Int63.to_float (Time_now.nanoseconds_since_unix_epoch ()) /. 1e9)
   in
-  let closure = Chunk.{ function_ } in
+  let closure =
+    Chunk.
+      {
+        function_;
+        upvalues = Array.create ~len:function_.upvalue_count (ref Chunk.Nil);
+      }
+  in
   let vm =
     {
       strings;
