@@ -2,7 +2,8 @@ open Core
 
 type t = {
   code : char Vector.t;
-  constants : value Vector.t;
+  constants : value_ Vector.t;
+      (* This is a `value_` not a `value` as everything inside ought to be constant, though they may contain references *)
   lines : int Vector.t;
 }
 
@@ -21,7 +22,12 @@ and obj =
   | Closure of closure
   | Native of (int -> value list -> value)
 
-and value = Float of float | Bool of bool | Nil | Object of obj
+and value_ = Float of float | Bool of bool | Nil | Object of obj
+and value = value_ ref
+
+let float v = ref (Float v)
+let bool b = ref (Bool b)
+let obj o = ref (Object o)
 
 let show_value =
   let show_function ({ name; _ } : function_) =
@@ -44,14 +50,15 @@ let print_line v =
   Printf.printf "%s" @@ show_value v;
   Printf.printf "\n"
 
-let is_falsey = function
+let is_falsey v =
+  match !v with
   | Nil -> true
   | Bool b -> not b
   | Float _ -> false
   | Object _ -> false
 
 let equal a b =
-  match (a, b) with
+  match (!a, !b) with
   | Float a, Float b -> Float.equal a b
   | Bool a, Bool b -> Bool.equal a b
   | Nil, Nil -> true

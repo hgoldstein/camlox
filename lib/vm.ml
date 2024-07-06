@@ -35,7 +35,7 @@ let fatal_runtime_error (_ : t) msg =
 
 let define_native vm name defn =
   let name = String_arena.get vm.strings name in
-  Table.set vm.globals name (Chunk.Object (Chunk.Native defn))
+  Table.set vm.globals name @@ ref (Chunk.Object (Chunk.Native defn))
 
 let read_string vm =
   match read_constant vm with
@@ -48,7 +48,7 @@ let print_stack vm =
   Printf.printf "          ";
   List.iter ~f:(fun v ->
       Printf.printf "[ ";
-      Chunk.print_value v;
+      Chunk.print_value !v;
       Printf.printf " ]")
   @@ List.rev vm.frame.stack;
   Printf.printf "\n";
@@ -80,7 +80,7 @@ let rec run (vm : t) : (unit, Err.t) result =
     vm.frame <- frame
   in
   let call_value vm stack callee arg_count =
-    match callee with
+    match !callee with
     | Chunk.Object (Chunk.Native fn) ->
         let new_stack, old_stack = List.split_n stack (arg_count + 1) in
         let result = fn arg_count new_stack in
@@ -113,27 +113,35 @@ let rec run (vm : t) : (unit, Err.t) result =
             vm.frame <- f;
             vm.frame_stack <- fs;
             (`Ok, result :: vm.frame.stack))
-    | Op.Constant, vs -> (`Ok, read_constant vm :: vs)
-    | Op.Negate, Float f :: vs -> (`Ok, Chunk.Float (f *. -1.0) :: vs)
-    | Op.Add, Float b :: Float a :: stack -> (`Ok, Float (a +. b) :: stack)
-    | Op.Add, Object (String b) :: Object (String a) :: stack ->
+    | Op.Constant, vs -> (`Ok, ref (read_constant vm) :: vs)
+    | Op.Negate, { contents = Float f } :: vs ->
+        (`Ok, Chunk.float (f *. -1.0) :: vs)
+    | Op.Add, { contents = Float b } :: { contents = Float a } :: stack ->
+        (`Ok, Chunk.float (a +. b) :: stack)
+    | ( Op.Add,
+        { contents = Object (String b) }
+        :: { contents = Object (String a) }
+        :: stack ) ->
         let a_chars = String_val.get a in
         let b_chars = String_val.get b in
-        (`Ok, String_arena.value vm.strings (a_chars ^ b_chars) :: stack)
-    | Op.Subtract, Float b :: Float a :: stack -> (`Ok, Float (a -. b) :: stack)
-    | Op.Divide, Float b :: Float a :: stack -> (`Ok, Float (a /. b) :: stack)
-    | Op.Multiply, Float b :: Float a :: stack -> (`Ok, Float (a *. b) :: stack)
-    | Op.Nil, stack -> (`Ok, Chunk.Nil :: stack)
-    | Op.True, stack -> (`Ok, Chunk.Bool true :: stack)
-    | Op.False, stack -> (`Ok, Chunk.Bool false :: stack)
-    | Op.Not, v :: vs -> (`Ok, Chunk.Bool (Chunk.is_falsey v) :: vs)
-    | Op.Equal, b :: a :: stack -> (`Ok, Chunk.Bool (Chunk.equal a b) :: stack)
-    | Op.Greater, Float b :: Float a :: stack ->
-        (`Ok, Chunk.Bool (Float.compare a b > 0) :: stack)
-    | Op.Less, Float b :: Float a :: stack ->
-        (`Ok, Chunk.Bool (Float.compare a b < 0) :: stack)
+        (`Ok, ref (String_arena.value vm.strings (a_chars ^ b_chars)) :: stack)
+    | Op.Subtract, { contents = Float b } :: { contents = Float a } :: stack ->
+        (`Ok, Chunk.float (a -. b) :: stack)
+    | Op.Divide, { contents = Float b } :: { contents = Float a } :: stack ->
+        (`Ok, Chunk.float (a /. b) :: stack)
+    | Op.Multiply, { contents = Float b } :: { contents = Float a } :: stack ->
+        (`Ok, Chunk.float (a *. b) :: stack)
+    | Op.Nil, stack -> (`Ok, ref Chunk.Nil :: stack)
+    | Op.True, stack -> (`Ok, Chunk.bool true :: stack)
+    | Op.False, stack -> (`Ok, Chunk.bool false :: stack)
+    | Op.Not, v :: vs -> (`Ok, Chunk.bool (Chunk.is_falsey v) :: vs)
+    | Op.Equal, b :: a :: stack -> (`Ok, Chunk.bool (Chunk.equal a b) :: stack)
+    | Op.Greater, { contents = Float b } :: { contents = Float a } :: stack ->
+        (`Ok, Chunk.bool (Float.compare a b > 0) :: stack)
+    | Op.Less, { contents = Float b } :: { contents = Float a } :: stack ->
+        (`Ok, Chunk.bool (Float.compare a b < 0) :: stack)
     | Op.Print, v :: stack ->
-        Chunk.print_line v;
+        Chunk.print_line !v;
         (`Ok, stack)
     | Op.Pop, _ :: stack -> (`Ok, stack)
     | Op.DefineGlobal, value :: stack ->
@@ -178,7 +186,7 @@ let rec run (vm : t) : (unit, Err.t) result =
         (`Ok, stack)
     | Op.Call, stack ->
         let arg_count = Char.to_int @@ read_byte vm in
-        (* This is meant to be `peek(n)`, which for a stack is equivalent to 
+        (* This is meant to be `peek(n)`, which for a stack is equivalent to
          * `List.nth`
          *)
         let callee = List.nth_exn stack arg_count in
@@ -186,7 +194,7 @@ let rec run (vm : t) : (unit, Err.t) result =
     | Op.Closure, stack -> (
         match read_constant vm with
         | Chunk.Object (Chunk.Function function_) ->
-            (`Ok, Chunk.Object (Chunk.Closure { function_ }) :: stack)
+            (`Ok, Chunk.obj (Chunk.Closure { function_ }) :: stack)
         | v ->
             fatal_runtime_error vm
               ("Cannot make into closure: " ^ Chunk.show_value v))
@@ -215,7 +223,7 @@ let rec run (vm : t) : (unit, Err.t) result =
 let interpret_function (function_ : Chunk.function_) (strings : String_arena.t)
     : (unit, Err.t) result =
   let clock _ _ =
-    Chunk.Float
+    Chunk.float
       (Int63.to_float (Time_now.nanoseconds_since_unix_epoch ()) /. 1e9)
   in
   let closure = Chunk.{ function_ } in
@@ -223,8 +231,7 @@ let interpret_function (function_ : Chunk.function_) (strings : String_arena.t)
     {
       strings;
       globals = Table.make ();
-      frame =
-        { closure; ip = 0; stack = [ Chunk.Object (Chunk.Closure closure) ] };
+      frame = { closure; ip = 0; stack = [ Chunk.obj (Chunk.Closure closure) ] };
       frame_stack = [];
     }
   in

@@ -70,7 +70,7 @@ let disassemble_instruction (c : Chunk.t) (offset : int) : int =
       let constant = Char.to_int @@ Vector.at ~vec:c.code ~index:(offset + 1) in
       let value = Vector.at ~vec:c.constants ~index:constant in
       Printf.printf "%-16s %4d " "OP_CLOSURE" constant;
-      Chunk.print_value @@ value;
+      Chunk.print_value value;
       Printf.printf "\n";
       match value with
       | Chunk.Object (Chunk.Function function_) ->
