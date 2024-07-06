@@ -6,4 +6,5 @@
 
 # TODO
 
+- [ ] We should probably just rewrite the stack to have an interface. Now that we need to support upvalue objects, the base value type needs to become a reference.
 - [ ] There are a couple places in the compiler we we make use of a "sliding stack" data structure that's shared among different structs. We _could_ make something like this fairly easily building off of `Vector`
