@@ -102,6 +102,10 @@ let rec run (vm : t) : (unit, Err.t) result =
                (* We take every argument *and* one more for the function object*)
              };
           (`Ok, new_stack)
+    | Chunk.Object (Chunk.Class class_) ->
+        let instance = Chunk.instance { class_; fields = Table.make () } in
+        let _, old_stack = List.split_n stack (arg_count + 1) in
+        (`Ok, instance :: old_stack)
     | _ -> (runtime_error vm "Can only call functions and classes.", stack)
   in
   let res, stack =
@@ -212,7 +216,7 @@ let rec run (vm : t) : (unit, Err.t) result =
               else ()
             in
             collect_upvals 0;
-            (`Ok, Chunk.obj (Chunk.Closure { function_; upvalues }) :: stack)
+            (`Ok, Chunk.closure { function_; upvalues } :: stack)
         | v ->
             fatal_runtime_error vm
               ("Cannot make into closure: " ^ Chunk.show_value v))
@@ -224,8 +228,12 @@ let rec run (vm : t) : (unit, Err.t) result =
     | Op.SetUpvalue, (top :: _ as stack) ->
         let slot = read_byte vm in
         let uv = Array.get vm.frame.closure.upvalues (Char.to_int slot) in
+        (* NOTE: I should figure out how best to test these semantics *)
         uv := !top;
         (`Ok, stack)
+    | Op.Class, stack ->
+        let name = read_string vm in
+        (`Ok, Chunk.cls { name } :: stack)
     (* Error cases *)
     | ( ( Op.Negate | Op.Not | Op.Print | Op.Pop | Op.DefineGlobal
         | Op.SetGlobal | Op.SetLocal | Op.JumpIfFalse | Op.Return
@@ -264,7 +272,7 @@ let interpret_function (function_ : Chunk.function_) (strings : String_arena.t)
     {
       strings;
       globals = Table.make ();
-      frame = { closure; ip = 0; stack = [ Chunk.obj (Chunk.Closure closure) ] };
+      frame = { closure; ip = 0; stack = [ Chunk.closure closure ] };
       frame_stack = [];
     }
   in

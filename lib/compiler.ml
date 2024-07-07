@@ -637,6 +637,16 @@ and fun_declaration p =
   function_ p;
   define_variable p global
 
+and class_declaration p =
+  consume p Token.Identifier "Expect class name.";
+  let name_const = identifier_constant p p.previous in
+  declare_variable p;
+  emit_opcode p Op.Class;
+  emit_byte p name_const;
+  define_variable p name_const;
+  consume p Token.LeftBrace "Expect '{' before class body.";
+  consume p Token.RightBrace "Expect '}' after class body."
+
 and declaration p =
   match p.current.kind with
   | Token.Var ->
@@ -645,6 +655,9 @@ and declaration p =
   | Token.Fun ->
       advance p;
       fun_declaration p
+  | Token.Class ->
+      advance p;
+      class_declaration p
   | _ -> statement p
 
 and declarations p =

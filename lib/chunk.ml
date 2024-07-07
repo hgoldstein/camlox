@@ -15,19 +15,25 @@ and function_ = {
 }
 
 and closure = { function_ : function_; upvalues : value Array.t }
+and class_ = { name : String_val.t }
+and instance_ = { class_ : class_; fields : value_ Table.t }
 
 and obj =
   | String of String_val.t
   | Function of function_
   | Closure of closure
   | Native of (int -> value list -> value)
+  | Class of class_
+  | Instance of instance_
 
 and value_ = Float of float | Bool of bool | Nil | Object of obj
 and value = value_ ref
 
 let float v = ref (Float v)
 let bool b = ref (Bool b)
-let obj o = ref (Object o)
+let closure o = ref (Object (Closure o))
+let cls o = ref (Object (Class o))
+let instance o = ref (Object (Instance o))
 
 let show_value =
   let show_function ({ name; _ } : function_) =
@@ -43,6 +49,9 @@ let show_value =
   | Object (Function f) -> show_function f
   | Object (Closure { function_; _ }) -> show_function function_
   | Object (Native _) -> "<native>"
+  | Object (Class c) -> Printf.sprintf "%s" (String_val.get c.name)
+  | Object (Instance i) ->
+      Printf.sprintf "%s instance" (String_val.get i.class_.name)
 
 let print_value v = Printf.printf "%s" @@ show_value v
 

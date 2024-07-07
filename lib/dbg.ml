@@ -86,6 +86,7 @@ let disassemble_instruction (c : Chunk.t) (offset : int) : int =
           in
           print_captures 0 (offset + 2)
       | v -> failwith ("Unexpected closure argument: " ^ Chunk.show_value v))
+  | Op.Class -> constant_instruction c "OP_CLASS" offset
 
 let disassemble_chunk (c : Chunk.t) (name : string) =
   Printf.printf "== %s ==\n" name;
