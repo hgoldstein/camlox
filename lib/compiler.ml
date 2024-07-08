@@ -638,7 +638,7 @@ and function_ p =
   block p;
   let fn = end_compiler p in
   p.compiler <- old_compiler;
-  emit_closure p @@ Chunk.Object (Chunk.Function { fn with arity });
+  emit_closure p @@ Chunk.Function { fn with arity };
   for i = 0 to fn.upvalue_count - 1 do
     let uv = Vector.at ~vec:compiler.upvalues ~index:i in
     emit_byte p @@ if uv.is_local then '\x01' else '\x00';

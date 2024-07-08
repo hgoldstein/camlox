@@ -73,7 +73,7 @@ let disassemble_instruction (c : Chunk.t) (offset : int) : int =
       Chunk.print_value value;
       Printf.printf "\n";
       match value with
-      | Chunk.Object (Chunk.Function function_) ->
+      | Chunk.Function function_ ->
           let rec print_captures j offset =
             if j >= function_.upvalue_count then offset
             else

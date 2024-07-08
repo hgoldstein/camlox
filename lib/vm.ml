@@ -35,11 +35,11 @@ let fatal_runtime_error (_ : t) msg =
 
 let define_native vm name defn =
   let name = String_arena.get vm.strings name in
-  Table.set vm.globals name @@ ref (Chunk.Object (Chunk.Native defn))
+  Table.set vm.globals name @@ ref (Chunk.Native defn)
 
 let read_string vm =
   match read_constant vm with
-  | Chunk.Object (Chunk.String s) -> s
+  | Chunk.String s -> s
   | v ->
       fatal_runtime_error vm
         (Printf.sprintf "Expected string constant, got: %s" (Chunk.show_value v))
@@ -81,11 +81,11 @@ let rec run (vm : t) : (unit, Err.t) result =
   in
   let call_value vm stack callee arg_count =
     match !callee with
-    | Chunk.Object (Chunk.Native fn) ->
+    | Chunk.Native fn ->
         let new_stack, old_stack = List.split_n stack (arg_count + 1) in
         let result = fn arg_count new_stack in
         (`Ok, result :: old_stack)
-    | Chunk.Object (Chunk.Closure closure) ->
+    | Chunk.Closure closure ->
         if arg_count <> closure.function_.arity then
           ( runtime_error vm
             @@ Printf.sprintf "Expected %d arguments but got %d"
@@ -102,7 +102,7 @@ let rec run (vm : t) : (unit, Err.t) result =
                (* We take every argument *and* one more for the function object*)
              };
           (`Ok, new_stack)
-    | Chunk.Object (Chunk.Class class_) ->
+    | Chunk.Class class_ ->
         let instance = Chunk.instance { class_; fields = Table.make () } in
         let _, old_stack = List.split_n stack (arg_count + 1) in
         (`Ok, instance :: old_stack)
@@ -122,10 +122,7 @@ let rec run (vm : t) : (unit, Err.t) result =
         (`Ok, Chunk.float (f *. -1.0) :: vs)
     | Op.Add, { contents = Float b } :: { contents = Float a } :: stack ->
         (`Ok, Chunk.float (a +. b) :: stack)
-    | ( Op.Add,
-        { contents = Object (String b) }
-        :: { contents = Object (String a) }
-        :: stack ) ->
+    | Op.Add, { contents = String b } :: { contents = String a } :: stack ->
         let a_chars = String_val.get a in
         let b_chars = String_val.get b in
         (`Ok, ref (String_arena.value vm.strings (a_chars ^ b_chars)) :: stack)
@@ -197,7 +194,7 @@ let rec run (vm : t) : (unit, Err.t) result =
         call_value vm stack callee arg_count
     | Op.Closure, stack -> (
         match read_constant vm with
-        | Chunk.Object (Chunk.Function function_) ->
+        | Chunk.Function function_ ->
             let upvalues =
               Array.create ~len:function_.upvalue_count (ref Chunk.Nil)
             in
@@ -234,8 +231,7 @@ let rec run (vm : t) : (unit, Err.t) result =
     | Op.Class, stack ->
         let name = read_string vm in
         (`Ok, Chunk.cls { name } :: stack)
-    | Op.GetProperty, { contents = Chunk.Object (Chunk.Instance inst) } :: stack
-      -> (
+    | Op.GetProperty, { contents = Chunk.Instance inst } :: stack -> (
         let prop = read_string vm in
         match Table.find inst.fields prop with
         | None ->
@@ -243,8 +239,7 @@ let rec run (vm : t) : (unit, Err.t) result =
                 (Printf.sprintf "Undefined property '%s'." (String_val.get prop)),
               stack )
         | Some v -> (`Ok, ref v :: stack))
-    | ( Op.SetProperty,
-        v :: { contents = Chunk.Object (Chunk.Instance inst) } :: stack ) ->
+    | Op.SetProperty, v :: { contents = Chunk.Instance inst } :: stack ->
         let prop = read_string vm in
         Table.set inst.fields prop !v;
         (`Ok, v :: stack)

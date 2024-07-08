@@ -8,4 +8,4 @@ let get table chars =
       Table.set table prospective prospective;
       prospective
 
-let value table chars = Chunk.Object (Chunk.String (get table chars))
+let value table chars = Chunk.String (get table chars)
