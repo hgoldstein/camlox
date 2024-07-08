@@ -30,6 +30,7 @@ type t =
   | Class
   | SetProperty
   | GetProperty
+  | Method
 
 (* NOTE: I don't love using Obj.magic here but it's the easiest way to
  * have this converstion function w/o codegen or writing things by hand.

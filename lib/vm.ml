@@ -80,31 +80,34 @@ let rec run (vm : t) : (unit, Err.t) result =
     vm.frame <- frame
   in
   let call_value vm stack callee arg_count =
+    let call_closure (closure : Chunk.closure) =
+      if arg_count <> closure.function_.arity then
+        runtime_error vm
+        @@ Printf.sprintf "Expected %d arguments but got %d"
+             closure.function_.arity arg_count
+      else
+        let new_stack, old_stack = List.split_n stack (arg_count + 1) in
+        vm.frame.stack <- old_stack;
+        push_frame vm
+        @@ {
+             ip = 0;
+             closure;
+             stack = [];
+             (* We take every argument *and* one more for the function object*)
+           };
+        `Ok new_stack
+    in
     match !callee with
     | Chunk.Native fn ->
         let new_stack, old_stack = List.split_n stack (arg_count + 1) in
         let result = fn arg_count new_stack in
         `Ok (result :: old_stack)
-    | Chunk.Closure closure ->
-        if arg_count <> closure.function_.arity then
-          runtime_error vm
-          @@ Printf.sprintf "Expected %d arguments but got %d"
-               closure.function_.arity arg_count
-        else
-          let new_stack, old_stack = List.split_n stack (arg_count + 1) in
-          vm.frame.stack <- old_stack;
-          push_frame vm
-          @@ {
-               ip = 0;
-               closure;
-               stack = [];
-               (* We take every argument *and* one more for the function object*)
-             };
-          `Ok new_stack
+    | Chunk.Closure closure -> call_closure closure
     | Chunk.Class class_ ->
         let instance = Chunk.instance { class_; fields = Table.make () } in
         let _, old_stack = List.split_n stack (arg_count + 1) in
         `Ok (instance :: old_stack)
+    | Chunk.BoundMethod bm -> call_closure bm.method_
     | _ -> runtime_error vm "Can only call functions and classes."
   in
   let res : cycle_result =
@@ -227,18 +230,35 @@ let rec run (vm : t) : (unit, Err.t) result =
         `Ok stack
     | Op.Class, stack ->
         let name = read_string vm in
-        `Ok (Chunk.cls { name } :: stack)
+        `Ok (Chunk.cls { name; methods = Table.make () } :: stack)
     | Op.GetProperty, { contents = Chunk.Instance inst } :: stack -> (
+        let bind_method (cls : Chunk.class_) p =
+          match Table.find cls.methods p with
+          | None ->
+              runtime_error vm
+                (Printf.sprintf "Undefined property '%s'." (String_val.get p))
+          | Some m ->
+              `Ok
+                (ref
+                   (Chunk.BoundMethod
+                      { method_ = m; receiver = ref (Chunk.Instance inst) })
+                :: stack)
+        in
         let prop = read_string vm in
         match Table.find inst.fields prop with
-        | None ->
-            runtime_error vm
-              (Printf.sprintf "Undefined property '%s'." (String_val.get prop))
+        | None -> bind_method inst.class_ prop
         | Some v -> `Ok (ref v :: stack))
     | Op.SetProperty, v :: { contents = Chunk.Instance inst } :: stack ->
         let prop = read_string vm in
         Table.set inst.fields prop !v;
         `Ok (v :: stack)
+    | ( Op.Method,
+        { contents = Chunk.Closure v }
+        :: ({ contents = Chunk.Class cls } as class_ref)
+        :: rest ) ->
+        let method_name = read_string vm in
+        Table.set cls.methods method_name v;
+        `Ok (class_ref :: rest)
     (* Error cases *)
     | ( ( Op.Negate | Op.Not | Op.Print | Op.Pop | Op.DefineGlobal
         | Op.SetGlobal | Op.SetLocal | Op.JumpIfFalse | Op.Return
@@ -247,13 +267,15 @@ let rec run (vm : t) : (unit, Err.t) result =
         fatal_runtime_error vm "Not enough arguments on stack."
     | Op.Negate, _ -> runtime_error vm "operand must be a number"
     | ( ( Op.Add | Op.Subtract | Op.Divide | Op.Multiply | Op.Equal | Op.Greater
-        | Op.Less | Op.SetProperty ),
+        | Op.Less | Op.SetProperty | Op.Method ),
         ([] | [ _ ]) ) ->
         fatal_runtime_error vm "Not enough arguments on stack."
     | Op.Add, _ ->
         runtime_error vm "Operands must be two numbers or two strings."
     | Op.GetProperty, _ -> runtime_error vm "Only instances have properties."
     | Op.SetProperty, _ -> runtime_error vm "Only instances have fields."
+    | Op.Method, _ ->
+        fatal_runtime_error vm "Unexpected operands for OP_METHOD."
     | (Op.Less | Op.Greater), _ -> runtime_error vm "operands must be numbers"
     | (Op.Subtract | Op.Divide | Op.Multiply), _ ->
         runtime_error vm "operands must be two numbers"

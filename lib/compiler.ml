@@ -651,15 +651,33 @@ and fun_declaration p =
   function_ p;
   define_variable p global
 
+and method_ p =
+  consume p Token.Identifier "Expect method name.";
+  let const = identifier_constant p p.previous in
+  function_ p;
+  emit_opcode p Op.Method;
+  emit_byte p const
+
 and class_declaration p =
   consume p Token.Identifier "Expect class name.";
+  let class_name = p.previous in
   let name_const = identifier_constant p p.previous in
   declare_variable p;
   emit_opcode p Op.Class;
   emit_byte p name_const;
   define_variable p name_const;
+  named_variable p class_name false;
   consume p Token.LeftBrace "Expect '{' before class body.";
-  consume p Token.RightBrace "Expect '}' after class body."
+  let rec collect_methods p =
+    match p.current.kind with
+    | Token.Eof | Token.RightBrace -> ()
+    | _ ->
+        method_ p;
+        collect_methods p
+  in
+  collect_methods p;
+  consume p Token.RightBrace "Expect '}' after class body.";
+  emit_opcode p Op.Pop
 
 and declaration p =
   match p.current.kind with

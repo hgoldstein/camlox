@@ -89,6 +89,7 @@ let disassemble_instruction (c : Chunk.t) (offset : int) : int =
   | Op.Class -> constant_instruction c "OP_CLASS" offset
   | Op.GetProperty -> constant_instruction c "OP_GET_PROPERTY" offset
   | Op.SetProperty -> constant_instruction c "OP_SET_PROPERTY" offset
+  | Op.Method -> constant_instruction c "OP_METHOD" offset
 
 let disassemble_chunk (c : Chunk.t) (name : string) =
   Printf.printf "== %s ==\n" name;

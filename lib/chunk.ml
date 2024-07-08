@@ -15,8 +15,9 @@ and function_ = {
 }
 
 and closure = { function_ : function_; upvalues : value Array.t }
-and class_ = { name : String_val.t }
+and class_ = { name : String_val.t; methods : closure Table.t }
 and instance_ = { class_ : class_; fields : value_ Table.t }
+and bound_method = { receiver : value; method_ : closure }
 
 and value_ =
   | Float of float
@@ -28,6 +29,7 @@ and value_ =
   | Native of (int -> value list -> value)
   | Class of class_
   | Instance of instance_
+  | BoundMethod of bound_method
 
 and value = value_ ref
 
@@ -53,6 +55,7 @@ let show_value =
   | Native _ -> "<native>"
   | Class c -> Printf.sprintf "%s" (String_val.get c.name)
   | Instance i -> Printf.sprintf "%s instance" (String_val.get i.class_.name)
+  | BoundMethod bm -> show_function bm.method_.function_
 
 let print_value v = Printf.printf "%s" @@ show_value v
 
@@ -65,7 +68,7 @@ let is_falsey v =
   | Nil -> true
   | Bool b -> not b
   | Float _ | String _ | Function _ | Closure _ | Native _ | Class _
-  | Instance _ ->
+  | Instance _ | BoundMethod _ ->
       false
 
 let equal a b =
