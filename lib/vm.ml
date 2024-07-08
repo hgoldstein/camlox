@@ -13,7 +13,7 @@ type t = {
   mutable frame_stack : call_frame list;
 }
 
-type cycle_result = [ `Ok | `Error of Err.t | `End ]
+type cycle_result = [ `Ok of Chunk.value list | `Error of Err.t | `End ]
 
 let read_byte vm =
   let index = vm.frame.ip in
@@ -84,13 +84,12 @@ let rec run (vm : t) : (unit, Err.t) result =
     | Chunk.Native fn ->
         let new_stack, old_stack = List.split_n stack (arg_count + 1) in
         let result = fn arg_count new_stack in
-        (`Ok, result :: old_stack)
+        `Ok (result :: old_stack)
     | Chunk.Closure closure ->
         if arg_count <> closure.function_.arity then
-          ( runtime_error vm
-            @@ Printf.sprintf "Expected %d arguments but got %d"
-                 closure.function_.arity arg_count,
-            stack )
+          runtime_error vm
+          @@ Printf.sprintf "Expected %d arguments but got %d"
+               closure.function_.arity arg_count
         else
           let new_stack, old_stack = List.split_n stack (arg_count + 1) in
           vm.frame.stack <- old_stack;
@@ -101,90 +100,88 @@ let rec run (vm : t) : (unit, Err.t) result =
                stack = [];
                (* We take every argument *and* one more for the function object*)
              };
-          (`Ok, new_stack)
+          `Ok new_stack
     | Chunk.Class class_ ->
         let instance = Chunk.instance { class_; fields = Table.make () } in
         let _, old_stack = List.split_n stack (arg_count + 1) in
-        (`Ok, instance :: old_stack)
-    | _ -> (runtime_error vm "Can only call functions and classes.", stack)
+        `Ok (instance :: old_stack)
+    | _ -> runtime_error vm "Can only call functions and classes."
   in
-  let res, stack =
+  let res : cycle_result =
     match (Op.of_byte @@ read_byte vm, vm.frame.stack) with
     | Op.Return, result :: _ -> (
         match vm.frame_stack with
-        | [] -> (`End, []) (* End of execution *)
+        | [] -> `End
         | f :: fs ->
             vm.frame <- f;
             vm.frame_stack <- fs;
-            (`Ok, result :: vm.frame.stack))
-    | Op.Constant, vs -> (`Ok, ref (read_constant vm) :: vs)
+            `Ok (result :: vm.frame.stack))
+    | Op.Constant, vs -> `Ok (ref (read_constant vm) :: vs)
     | Op.Negate, { contents = Float f } :: vs ->
-        (`Ok, Chunk.float (f *. -1.0) :: vs)
+        `Ok (Chunk.float (f *. -1.0) :: vs)
     | Op.Add, { contents = Float b } :: { contents = Float a } :: stack ->
-        (`Ok, Chunk.float (a +. b) :: stack)
+        `Ok (Chunk.float (a +. b) :: stack)
     | Op.Add, { contents = String b } :: { contents = String a } :: stack ->
         let a_chars = String_val.get a in
         let b_chars = String_val.get b in
-        (`Ok, ref (String_arena.value vm.strings (a_chars ^ b_chars)) :: stack)
+        `Ok (ref (String_arena.value vm.strings (a_chars ^ b_chars)) :: stack)
     | Op.Subtract, { contents = Float b } :: { contents = Float a } :: stack ->
-        (`Ok, Chunk.float (a -. b) :: stack)
+        `Ok (Chunk.float (a -. b) :: stack)
     | Op.Divide, { contents = Float b } :: { contents = Float a } :: stack ->
-        (`Ok, Chunk.float (a /. b) :: stack)
+        `Ok (Chunk.float (a /. b) :: stack)
     | Op.Multiply, { contents = Float b } :: { contents = Float a } :: stack ->
-        (`Ok, Chunk.float (a *. b) :: stack)
-    | Op.Nil, stack -> (`Ok, ref Chunk.Nil :: stack)
-    | Op.True, stack -> (`Ok, Chunk.bool true :: stack)
-    | Op.False, stack -> (`Ok, Chunk.bool false :: stack)
-    | Op.Not, v :: vs -> (`Ok, Chunk.bool (Chunk.is_falsey v) :: vs)
-    | Op.Equal, b :: a :: stack -> (`Ok, Chunk.bool (Chunk.equal a b) :: stack)
+        `Ok (Chunk.float (a *. b) :: stack)
+    | Op.Nil, stack -> `Ok (ref Chunk.Nil :: stack)
+    | Op.True, stack -> `Ok (Chunk.bool true :: stack)
+    | Op.False, stack -> `Ok (Chunk.bool false :: stack)
+    | Op.Not, v :: vs -> `Ok (Chunk.bool (Chunk.is_falsey v) :: vs)
+    | Op.Equal, b :: a :: stack -> `Ok (Chunk.bool (Chunk.equal a b) :: stack)
     | Op.Greater, { contents = Float b } :: { contents = Float a } :: stack ->
-        (`Ok, Chunk.bool (Float.compare a b > 0) :: stack)
+        `Ok (Chunk.bool (Float.compare a b > 0) :: stack)
     | Op.Less, { contents = Float b } :: { contents = Float a } :: stack ->
-        (`Ok, Chunk.bool (Float.compare a b < 0) :: stack)
+        `Ok (Chunk.bool (Float.compare a b < 0) :: stack)
     | Op.Print, v :: stack ->
         Chunk.print_line !v;
-        (`Ok, stack)
-    | Op.Pop, _ :: stack -> (`Ok, stack)
+        `Ok stack
+    | Op.Pop, _ :: stack -> `Ok stack
     | Op.DefineGlobal, value :: stack ->
         let name = read_string vm in
         Table.set vm.globals name value;
-        (`Ok, stack)
+        `Ok stack
     | Op.GetGlobal, stack -> (
         let name = read_string vm in
         match Table.find vm.globals name with
         | None ->
-            ( runtime_error vm
-                (Printf.sprintf "Undefined variable '%s'." (String_val.get name)),
-              stack )
-        | Some v -> (`Ok, v :: stack))
+            runtime_error vm
+              (Printf.sprintf "Undefined variable '%s'." (String_val.get name))
+        | Some v -> `Ok (v :: stack))
     | Op.SetGlobal, v :: stack ->
         let name = read_string vm in
         if not @@ Table.mem vm.globals name then
-          ( runtime_error vm
-              (Printf.sprintf "Undefined variable '%s'." (String_val.get name)),
-            v :: stack )
+          runtime_error vm
+            (Printf.sprintf "Undefined variable '%s'." (String_val.get name))
         else (
           Table.set vm.globals name v;
-          (`Ok, v :: stack))
+          `Ok (v :: stack))
     | Op.GetLocal, stack ->
         let slot = nth_from_back stack @@ read_byte vm in
-        (`Ok, List.nth_exn stack slot :: stack)
+        `Ok (List.nth_exn stack slot :: stack)
     | Op.SetLocal, (top :: _ as stack) ->
         let slot = nth_from_back stack @@ read_byte vm in
         let f idx v = if idx = slot then top else v in
-        (`Ok, List.mapi stack ~f)
+        `Ok (List.mapi stack ~f)
     | Op.JumpIfFalse, (top :: _ as stack) ->
         let offset = read_short vm in
         if Chunk.is_falsey top then vm.frame.ip <- vm.frame.ip + offset;
-        (`Ok, stack)
+        `Ok stack
     | Op.Jump, stack ->
         let offset = read_short vm in
         vm.frame.ip <- vm.frame.ip + offset;
-        (`Ok, stack)
+        `Ok stack
     | Op.Loop, stack ->
         let offset = read_short vm in
         vm.frame.ip <- vm.frame.ip - offset;
-        (`Ok, stack)
+        `Ok stack
     | Op.Call, stack ->
         let arg_count = Char.to_int @@ read_byte vm in
         (* This is meant to be `peek(n)`, which for a stack is equivalent to
@@ -213,7 +210,7 @@ let rec run (vm : t) : (unit, Err.t) result =
               else ()
             in
             collect_upvals 0;
-            (`Ok, Chunk.closure { function_; upvalues } :: stack)
+            `Ok (Chunk.closure { function_; upvalues } :: stack)
         | v ->
             fatal_runtime_error vm
               ("Cannot make into closure: " ^ Chunk.show_value v))
@@ -221,51 +218,52 @@ let rec run (vm : t) : (unit, Err.t) result =
         let slot = read_byte vm in
         (* NOTE: I think this is the correct semantics ... *)
         let v = !(Array.get vm.frame.closure.upvalues (Char.to_int slot)) in
-        (`Ok, ref v :: stack)
+        `Ok (ref v :: stack)
     | Op.SetUpvalue, (top :: _ as stack) ->
         let slot = read_byte vm in
         let uv = Array.get vm.frame.closure.upvalues (Char.to_int slot) in
         (* NOTE: I should figure out how best to test these semantics *)
         uv := !top;
-        (`Ok, stack)
+        `Ok stack
     | Op.Class, stack ->
         let name = read_string vm in
-        (`Ok, Chunk.cls { name } :: stack)
+        `Ok (Chunk.cls { name } :: stack)
     | Op.GetProperty, { contents = Chunk.Instance inst } :: stack -> (
         let prop = read_string vm in
         match Table.find inst.fields prop with
         | None ->
-            ( runtime_error vm
-                (Printf.sprintf "Undefined property '%s'." (String_val.get prop)),
-              stack )
-        | Some v -> (`Ok, ref v :: stack))
+            runtime_error vm
+              (Printf.sprintf "Undefined property '%s'." (String_val.get prop))
+        | Some v -> `Ok (ref v :: stack))
     | Op.SetProperty, v :: { contents = Chunk.Instance inst } :: stack ->
         let prop = read_string vm in
         Table.set inst.fields prop !v;
-        (`Ok, v :: stack)
+        `Ok (v :: stack)
     (* Error cases *)
     | ( ( Op.Negate | Op.Not | Op.Print | Op.Pop | Op.DefineGlobal
         | Op.SetGlobal | Op.SetLocal | Op.JumpIfFalse | Op.Return
         | Op.SetUpvalue | Op.GetProperty ),
         [] ) ->
         fatal_runtime_error vm "Not enough arguments on stack."
-    | Op.Negate, stack -> (runtime_error vm "operand must be a number", stack)
+    | Op.Negate, _ -> runtime_error vm "operand must be a number"
     | ( ( Op.Add | Op.Subtract | Op.Divide | Op.Multiply | Op.Equal | Op.Greater
         | Op.Less | Op.SetProperty ),
         ([] | [ _ ]) ) ->
         fatal_runtime_error vm "Not enough arguments on stack."
-    | Op.Add, vs ->
-        (runtime_error vm "Operands must be two numbers or two strings.", vs)
-    | Op.GetProperty, vs ->
-        (runtime_error vm "Only instances have properties.", vs)
-    | Op.SetProperty, vs -> (runtime_error vm "Only instances have fields.", vs)
-    | (Op.Less | Op.Greater), vs ->
-        (runtime_error vm "operands must be numbers", vs)
-    | (Op.Subtract | Op.Divide | Op.Multiply), vs ->
-        (runtime_error vm "operands must be two numbers", vs)
+    | Op.Add, _ ->
+        runtime_error vm "Operands must be two numbers or two strings."
+    | Op.GetProperty, _ -> runtime_error vm "Only instances have properties."
+    | Op.SetProperty, _ -> runtime_error vm "Only instances have fields."
+    | (Op.Less | Op.Greater), _ -> runtime_error vm "operands must be numbers"
+    | (Op.Subtract | Op.Divide | Op.Multiply), _ ->
+        runtime_error vm "operands must be two numbers"
   in
-  vm.frame.stack <- stack;
-  match res with `Error e -> Error e | `Ok -> run vm | `End -> Ok ()
+  match res with
+  | `Error e -> Error e
+  | `End -> Ok ()
+  | `Ok stack ->
+      vm.frame.stack <- stack;
+      run vm
 
 let interpret_function (function_ : Chunk.function_) (strings : String_arena.t)
     : (unit, Err.t) result =
