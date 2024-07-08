@@ -9,7 +9,6 @@
 ## Backlog
 
 - [ ] There are a couple places in the compiler we we make use of a "sliding stack" data structure that's shared among different structs. We _could_ make something like this fairly easily building off of `Vector`
-- [ ] Refactor vm main cycle to return "`Ok of stack" or error
 - [ ] REPL seems to be broken
 - Post book enhancements
   - [ ] Profile "fat" instructions versus a data pipeline
@@ -18,3 +17,4 @@
 - [x] We should probably just rewrite the stack to have an interface. Now that we need to support upvalue objects, the base value type needs to become a reference.
   - Didn't quite need to do this, turns out just wrapping everything in a ref is easier
 - [x] Flatten `object` hierarchy, doesn't need to be nested as we don't need to support the metadata.
+- [x] Refactor vm main cycle to return "`Ok of stack" or error
