@@ -31,7 +31,7 @@ let rec skip_while s f =
   else ()
 
 (* NOTE: clox does this based off of a null terminated string, could be worth
- * revisiting in the future, but it makes a nice property that nothing matches 
+ * revisiting in the future, but it makes a nice property that nothing matches
  * the null terminated string.
  *)
 let is_at_end scanner = peek scanner = '\x00'
@@ -46,7 +46,12 @@ let peek_expect scanner expected =
 
 let rec skip_to_line_end s =
   if is_at_end s then ()
-  else match peek s with '\n' -> () | _ -> skip_to_line_end s
+  else
+    match peek s with
+    | '\n' -> ()
+    | _ ->
+        skip_one s;
+        skip_to_line_end s
 
 let rec skip_whitespace s =
   match peek s with
