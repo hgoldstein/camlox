@@ -234,19 +234,36 @@ let rec run (vm : t) : (unit, Err.t) result =
     | Op.Class, stack ->
         let name = read_string vm in
         (`Ok, Chunk.cls { name } :: stack)
+    | Op.GetProperty, { contents = Chunk.Object (Chunk.Instance inst) } :: stack
+      -> (
+        let prop = read_string vm in
+        match Table.find inst.fields prop with
+        | None ->
+            ( runtime_error vm
+                (Printf.sprintf "Undefined property '%s'." (String_val.get prop)),
+              stack )
+        | Some v -> (`Ok, ref v :: stack))
+    | ( Op.SetProperty,
+        v :: { contents = Chunk.Object (Chunk.Instance inst) } :: stack ) ->
+        let prop = read_string vm in
+        Table.set inst.fields prop !v;
+        (`Ok, v :: stack)
     (* Error cases *)
     | ( ( Op.Negate | Op.Not | Op.Print | Op.Pop | Op.DefineGlobal
         | Op.SetGlobal | Op.SetLocal | Op.JumpIfFalse | Op.Return
-        | Op.SetUpvalue ),
+        | Op.SetUpvalue | Op.GetProperty ),
         [] ) ->
         fatal_runtime_error vm "Not enough arguments on stack."
     | Op.Negate, stack -> (runtime_error vm "operand must be a number", stack)
     | ( ( Op.Add | Op.Subtract | Op.Divide | Op.Multiply | Op.Equal | Op.Greater
-        | Op.Less ),
+        | Op.Less | Op.SetProperty ),
         ([] | [ _ ]) ) ->
         fatal_runtime_error vm "Not enough arguments on stack."
     | Op.Add, vs ->
         (runtime_error vm "Operands must be two numbers or two strings.", vs)
+    | Op.GetProperty, vs ->
+        (runtime_error vm "Only instances have properties.", vs)
+    | Op.SetProperty, vs -> (runtime_error vm "Only instances have fields.", vs)
     | (Op.Less | Op.Greater), vs ->
         (runtime_error vm "operands must be numbers", vs)
     | (Op.Subtract | Op.Divide | Op.Multiply), vs ->

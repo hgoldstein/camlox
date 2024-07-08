@@ -404,6 +404,19 @@ and or_ p _ =
   parse_precedence p Precedence.Or;
   patch_jump p end_jump
 
+and dot p can_assign =
+  consume p Token.Identifier "Expect property name after '.'.";
+  let name = identifier_constant p p.previous in
+  match p.current.kind with
+  | Token.Equal when can_assign ->
+      advance p;
+      expression p;
+      emit_opcode p Op.SetProperty;
+      emit_byte p name
+  | _ ->
+      emit_opcode p Op.GetProperty;
+      emit_byte p name
+
 and argument_list p =
   let rec gather_args count =
     expression p;
@@ -455,6 +468,7 @@ and get_rule : Token.kind -> rule =
   | Token.Identifier -> make_rule ~prefix:(Some variable) ()
   | Token.And -> make_rule ~infix:(Some and_) ~prec:And ()
   | Token.Or -> make_rule ~infix:(Some or_) ~prec:Or ()
+  | Token.Dot -> make_rule ~infix:(Some dot) ~prec:Call ()
   | _ -> make_rule ()
 
 and print_statement p =

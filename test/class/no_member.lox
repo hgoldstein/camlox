@@ -1,0 +1,3 @@
+class Foobar { }
+var fb = Foobar();
+print fb.lol;
