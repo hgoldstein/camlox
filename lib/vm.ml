@@ -80,21 +80,37 @@ let rec run (vm : t) : (unit, Err.t) result =
     vm.frame <- frame
   in
   let call_value vm stack callee arg_count =
-    let call_closure (closure : Chunk.closure) =
+    let call_closure (closure : Chunk.closure) (bound_this : Chunk.value option)
+        =
       if arg_count <> closure.function_.arity then
         runtime_error vm
         @@ Printf.sprintf "Expected %d arguments but got %d"
              closure.function_.arity arg_count
       else
-        let new_stack, old_stack = List.split_n stack (arg_count + 1) in
+        (*
+         * We need to slice the current stack into three sections:
+         *
+         *   | Stack values not in the function call | function obj | function call arguments |
+         *
+         * - The lower stack values are put back in place
+         * - The function call arguments always make up the new stack
+         * - Depending on if we're calling a function or a method, we replace
+         *   the function object with `this`
+         *)
+        (* We take every argument *and* one more for the function object*)
+        let rec loop n acc = function
+          | [] -> failwith "Unexpected end of stack"
+          | hd :: tl when n = 0 -> (tl, hd, acc)
+          | hd :: tl -> loop (n - 1) (hd :: acc) tl
+        in
+        let old_stack, obj, new_stack_reversed = loop arg_count [] stack in
+        let new_stack =
+          List.rev
+          @@ (match bound_this with None -> obj | Some m -> m)
+             :: new_stack_reversed
+        in
         vm.frame.stack <- old_stack;
-        push_frame vm
-        @@ {
-             ip = 0;
-             closure;
-             stack = [];
-             (* We take every argument *and* one more for the function object*)
-           };
+        push_frame vm @@ { ip = 0; closure; stack = [] };
         `Ok new_stack
     in
     match !callee with
@@ -102,12 +118,12 @@ let rec run (vm : t) : (unit, Err.t) result =
         let new_stack, old_stack = List.split_n stack (arg_count + 1) in
         let result = fn arg_count new_stack in
         `Ok (result :: old_stack)
-    | Chunk.Closure closure -> call_closure closure
+    | Chunk.Closure closure -> call_closure closure None
     | Chunk.Class class_ ->
         let instance = Chunk.instance { class_; fields = Table.make () } in
         let _, old_stack = List.split_n stack (arg_count + 1) in
         `Ok (instance :: old_stack)
-    | Chunk.BoundMethod bm -> call_closure bm.method_
+    | Chunk.BoundMethod bm -> call_closure bm.method_ (Some bm.receiver)
     | _ -> runtime_error vm "Can only call functions and classes."
   in
   let res : cycle_result =

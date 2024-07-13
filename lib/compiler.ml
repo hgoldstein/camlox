@@ -1,6 +1,7 @@
 open Core
 
 type upvalue = { is_local : bool; index : char }
+type class_compiler = unit
 
 type compiler = {
   output : Chunk.function_;
@@ -9,13 +10,24 @@ type compiler = {
   upvalues : upvalue Vector.t;
 }
 
-let make_compiler ~encloses ~arity ~name : compiler =
+let make_compiler ~kind ~encloses ~arity ~name : compiler =
   let local_tracker = Locals.make () in
   (* Initialize the local tracker with a "hidden" local, representing the
    * function objects we push onto the stack.
    *)
   local_tracker.locals <-
-    [ { name = { content = ""; kind = Token.Error; line = -1 }; depth = 0 } ];
+    (match kind with
+    | `Function | `Script ->
+        [
+          { name = { content = ""; kind = Token.Error; line = -1 }; depth = 0 };
+        ]
+    | `Method ->
+        [
+          {
+            name = { content = "this"; kind = Token.Error; line = -1 };
+            depth = 0;
+          };
+        ]);
   {
     output = { chunk = Chunk.make (); arity; name; upvalue_count = 0 };
     local_tracker;
@@ -27,6 +39,7 @@ type parser = {
   scanner : Scanner.t;
   arena : String_arena.t;
   mutable compiler : compiler;
+  mutable class_compiler : class_compiler list;
   mutable previous : Token.t;
   mutable current : Token.t;
   mutable had_error : bool;
@@ -440,6 +453,11 @@ and call p _ =
   emit_opcode p Op.Call;
   emit_byte p arg_count
 
+and this_ p _ =
+  if List.is_empty p.class_compiler then
+    error p "Can't use 'this' outside of a class."
+  else variable p false
+
 and get_rule : Token.kind -> rule =
   let open Precedence in
   let make_rule ?(prefix = None) ?(infix = None) ?(prec = NoPrec) () =
@@ -469,6 +487,7 @@ and get_rule : Token.kind -> rule =
   | Token.And -> make_rule ~infix:(Some and_) ~prec:And ()
   | Token.Or -> make_rule ~infix:(Some or_) ~prec:Or ()
   | Token.Dot -> make_rule ~infix:(Some dot) ~prec:Call ()
+  | Token.This -> make_rule ~prefix:(Some this_) ()
   | _ -> make_rule ()
 
 and print_statement p =
@@ -609,9 +628,9 @@ and var_declaration p =
   consume p Token.Semicolon "Expect ; after variable declaration";
   define_variable p global
 
-and function_ p =
+and function_ ~kind p =
   let compiler =
-    make_compiler ~encloses:(Some p.compiler) ~arity:0
+    make_compiler ~kind ~encloses:(Some p.compiler) ~arity:0
       ~name:(Some (String_arena.get p.arena p.previous.content))
   in
   let old_compiler = p.compiler in
@@ -648,13 +667,13 @@ and function_ p =
 and fun_declaration p =
   let global = parse_variable p "Expect function name." in
   mark_initialized p.compiler;
-  function_ p;
+  function_ p ~kind:`Function;
   define_variable p global
 
 and method_ p =
   consume p Token.Identifier "Expect method name.";
   let const = identifier_constant p p.previous in
-  function_ p;
+  function_ p ~kind:`Method;
   emit_opcode p Op.Method;
   emit_byte p const
 
@@ -666,6 +685,7 @@ and class_declaration p =
   emit_opcode p Op.Class;
   emit_byte p name_const;
   define_variable p name_const;
+  p.class_compiler <- () :: p.class_compiler;
   named_variable p class_name false;
   consume p Token.LeftBrace "Expect '{' before class body.";
   let rec collect_methods p =
@@ -677,7 +697,8 @@ and class_declaration p =
   in
   collect_methods p;
   consume p Token.RightBrace "Expect '}' after class body.";
-  emit_opcode p Op.Pop
+  emit_opcode p Op.Pop;
+  p.class_compiler <- List.tl_exn p.class_compiler
 
 and declaration p =
   match p.current.kind with
@@ -707,7 +728,8 @@ let compile (source : string) : (Chunk.function_ * String_arena.t, Err.t) result
   let p : parser =
     {
       scanner = Scanner.of_string source;
-      compiler = make_compiler ~arity:0 ~name:None ~encloses:None;
+      compiler = make_compiler ~arity:0 ~kind:`Script ~name:None ~encloses:None;
+      class_compiler = [];
       arena = Table.make ();
       previous = Token.{ content = ""; kind = Token.Error; line = -1 };
       current = Token.{ content = ""; kind = Token.Error; line = -1 };
