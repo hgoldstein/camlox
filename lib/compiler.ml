@@ -2,12 +2,14 @@ open Core
 
 type upvalue = { is_local : bool; index : char }
 type class_compiler = unit
+type function_kind = [ `Function | `Script | `Method | `Initializer ]
 
 type compiler = {
   output : Chunk.function_;
   local_tracker : Locals.t;
   encloses : compiler option; [@warning "-69"]
   upvalues : upvalue Vector.t;
+  kind : function_kind;
 }
 
 let make_compiler ~kind ~encloses ~arity ~name : compiler =
@@ -21,7 +23,7 @@ let make_compiler ~kind ~encloses ~arity ~name : compiler =
         [
           { name = { content = ""; kind = Token.Error; line = -1 }; depth = 0 };
         ]
-    | `Method ->
+    | `Method | `Initializer ->
         [
           {
             name = { content = "this"; kind = Token.Error; line = -1 };
@@ -33,6 +35,7 @@ let make_compiler ~kind ~encloses ~arity ~name : compiler =
     local_tracker;
     encloses;
     upvalues = Vector.empty ();
+    kind;
   }
 
 type parser = {
@@ -226,9 +229,19 @@ let define_variable p global =
     emit_opcode p Op.DefineGlobal;
     emit_byte p global)
 
+let emit_return p =
+  (* For returns, if we are compiling an initializer then we want to return
+   * `this`, which is stored in the 0th local slot.
+   *)
+  (match p.compiler.kind with
+  | `Initializer ->
+      emit_opcode p Op.GetLocal;
+      emit_byte p '\x00'
+  | `Function | `Script | `Method -> emit_opcode p Op.Nil);
+  emit_opcode p Op.Return
+
 let end_compiler p =
-  emit_opcode p Op.Nil;
-  emit_opcode p Op.Return;
+  emit_return p;
   (if Dbg.on () && not p.had_error then
      let name =
        match p.compiler.output.name with
@@ -580,8 +593,11 @@ and return_statement p =
   match p.current.kind with
   | Token.Semicolon ->
       advance p;
-      emit_opcode p Op.Return
+      emit_return p
   | _ ->
+      (match p.compiler.kind with
+      | `Initializer -> error p "Can't return a value from an initializer."
+      | _ -> ());
       expression p;
       consume p Token.Semicolon "Expect ';' after return value.";
       emit_opcode p Op.Return
@@ -673,7 +689,10 @@ and fun_declaration p =
 and method_ p =
   consume p Token.Identifier "Expect method name.";
   let const = identifier_constant p p.previous in
-  function_ p ~kind:`Method;
+  let kind =
+    match p.previous.content with "init" -> `Initializer | _ -> `Method
+  in
+  function_ p ~kind;
   emit_opcode p Op.Method;
   emit_byte p const
 

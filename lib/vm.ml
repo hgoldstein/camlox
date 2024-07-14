@@ -9,6 +9,7 @@ type call_frame = {
 type t = {
   strings : String_arena.t;
   globals : Chunk.value Table.t;
+  init_string : String_val.t;
   mutable frame : call_frame;
   mutable frame_stack : call_frame list;
 }
@@ -79,51 +80,59 @@ let rec run (vm : t) : (unit, Err.t) result =
     vm.frame_stack <- vm.frame :: vm.frame_stack;
     vm.frame <- frame
   in
-  let call_value vm stack callee arg_count =
-    let call_closure (closure : Chunk.closure) (bound_this : Chunk.value option)
-        =
-      if arg_count <> closure.function_.arity then
-        runtime_error vm
-        @@ Printf.sprintf "Expected %d arguments but got %d"
-             closure.function_.arity arg_count
-      else
-        (*
-         * We need to slice the current stack into three sections:
-         *
-         *   | Stack values not in the function call | function obj | function call arguments |
-         *
-         * - The lower stack values are put back in place
-         * - The function call arguments always make up the new stack
-         * - Depending on if we're calling a function or a method, we replace
-         *   the function object with `this`
-         *)
-        (* We take every argument *and* one more for the function object*)
-        let rec loop n acc = function
-          | [] -> failwith "Unexpected end of stack"
-          | hd :: tl when n = 0 -> (tl, hd, acc)
-          | hd :: tl -> loop (n - 1) (hd :: acc) tl
-        in
-        let old_stack, obj, new_stack_reversed = loop arg_count [] stack in
-        let new_stack =
-          List.rev
-          @@ (match bound_this with None -> obj | Some m -> m)
-             :: new_stack_reversed
-        in
-        vm.frame.stack <- old_stack;
-        push_frame vm @@ { ip = 0; closure; stack = [] };
-        `Ok new_stack
+  (*
+   * We need to slice the current stack into three sections:
+   *
+   *   | Stack values not in the function call | function obj | function call arguments |
+   *
+   * - The lower stack values are put back in place
+   * - The function call arguments always make up the new stack
+   * - Depending on if we're calling a function or a method, we replace
+   *   the function object with `this`
+   *)
+  let split_stack stack arg_count new_base =
+    let rec loop n acc = function
+      | [] -> failwith "Unexpected end of stack"
+      | hd :: tl when n = 0 -> (tl, hd, acc)
+      | hd :: tl -> loop (n - 1) (hd :: acc) tl
     in
+    let old_stack, obj, new_stack_reversed = loop arg_count [] stack in
+    ( old_stack,
+      List.rev
+      @@ (match new_base with None -> obj | Some o -> o)
+         :: new_stack_reversed )
+  in
+  let call_closure vm stack (closure : Chunk.closure) arg_count
+      (bound_this : Chunk.value option) =
+    if arg_count <> closure.function_.arity then
+      runtime_error vm
+      @@ Printf.sprintf "Expected %d arguments but got %d"
+           closure.function_.arity arg_count
+    else
+      let old_stack, new_stack = split_stack stack arg_count bound_this in
+      vm.frame.stack <- old_stack;
+      push_frame vm @@ { ip = 0; closure; stack = [] };
+      `Ok new_stack
+  in
+  let call_value vm stack callee arg_count =
     match !callee with
     | Chunk.Native fn ->
         let new_stack, old_stack = List.split_n stack (arg_count + 1) in
         let result = fn arg_count new_stack in
         `Ok (result :: old_stack)
-    | Chunk.Closure closure -> call_closure closure None
-    | Chunk.Class class_ ->
-        let instance = Chunk.instance { class_; fields = Table.make () } in
-        let _, old_stack = List.split_n stack (arg_count + 1) in
-        `Ok (instance :: old_stack)
-    | Chunk.BoundMethod bm -> call_closure bm.method_ (Some bm.receiver)
+    | Chunk.Closure closure -> call_closure vm stack closure arg_count None
+    | Chunk.Class class_ -> (
+        let instance = Chunk.Instance { class_; fields = Table.make () } in
+        match Table.find class_.methods vm.init_string with
+        | None when arg_count = 0 ->
+            (* The head of our stack should be the class ptr *)
+            `Ok (ref instance :: List.tl_exn stack)
+        | None ->
+            runtime_error vm
+              (Printf.sprintf "Expected 0 arguments but got %d" arg_count)
+        | Some m -> call_closure vm stack m arg_count (Some (ref instance)))
+    | Chunk.BoundMethod bm ->
+        call_closure vm stack bm.method_ arg_count (Some bm.receiver)
     | _ -> runtime_error vm "Can only call functions and classes."
   in
   let res : cycle_result =
@@ -319,6 +328,7 @@ let interpret_function (function_ : Chunk.function_) (strings : String_arena.t)
   let vm =
     {
       strings;
+      init_string = String_arena.get strings "init";
       globals = Table.make ();
       frame = { closure; ip = 0; stack = [ Chunk.closure closure ] };
       frame_stack = [];
