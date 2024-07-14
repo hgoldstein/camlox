@@ -173,7 +173,7 @@ def run_tests(files: list[str], promote: bool) -> bool:
                 failed = True
 
     with asyncio.Runner() as runner:
-        runner.run(asyncio.subprocess.create_subprocess_exec("dune", "build"))
+        runner.run(asyncio.subprocess.create_subprocess_exec("dune", "build", "--display=short"))
         for test in tests_from_file_list(files) if len(files) > 0 else generate_tests():
             runner.run(run_single(test))
 
