@@ -1,0 +1,5 @@
+fun init() {
+    print "I am in init!";
+}
+
+init();

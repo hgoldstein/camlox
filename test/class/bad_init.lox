@@ -1,0 +1,5 @@
+class Foobar {
+    init() {
+        return 42;
+    }
+}
