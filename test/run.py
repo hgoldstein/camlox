@@ -153,31 +153,37 @@ def tests_from_file_list(files: list[str]) -> Generator[Test, None, None]:
         yield Test(file=pathlib.Path(f).resolve())
 
 
-def run_tests(files: list[str], promote: bool) -> bool:
-    failed = False
-    async def run_single(t: Test) -> None:
-        global log, failed
-        log.debug(f"Running `{test.name()}'")
-        match r := await test.run(promote):
-            case None:
-                log.debug(f"`{test.name()}' passed")
-            case Promoted():
-                log.debug(f"`{test.name()}' promoted output to expected.")
-            case OutputMismatch():
-                log.error(f"`{test.name()}' failed, output mismatch:")
-                test.print_diff()
-                failed = True
-            case NoOutputFile():
-                log.error(f"`{test.name()}' failed, no output file")
-                log.info(f"`{test.name()}' output:\n{r.output}")
-                failed = True
+async def run_single(test: Test, promote: bool) -> bool:
+    global log
+    passed = True
+    log.debug(f"Running `{test.name()}'")
+    match r := await test.run(promote):
+        case None:
+            log.debug(f"`{test.name()}' passed")
+        case Promoted():
+            log.debug(f"`{test.name()}' promoted output to expected.")
+        case OutputMismatch():
+            log.error(f"`{test.name()}' failed, output mismatch:")
+            test.print_diff()
+            passed = False
+        case NoOutputFile():
+            log.error(f"`{test.name()}' failed, no output file")
+            log.info(f"`{test.name()}' output:\n{r.output}")
+            passed = False
 
-    with asyncio.Runner() as runner:
-        runner.run(asyncio.subprocess.create_subprocess_exec("dune", "build", "--display=short"))
-        for test in tests_from_file_list(files) if len(files) > 0 else generate_tests():
-            runner.run(run_single(test))
+    return passed
 
-    return failed
+async def run_tests(files: list[str], promote: bool) -> bool:
+    await asyncio.create_subprocess_exec("dune", "build", "--display=quiet")
+    log.debug("Begin running suite ...")
+    results = [
+        run_single(test, promote)
+        for test in (
+            tests_from_file_list(files) if len(files) > 0 else generate_tests()
+        )
+    ]
+    log.debug("All tests scheduled, waiting for suite to finish ... ")
+    return all(await asyncio.gather(*results))
 
 
 def main() -> None:
@@ -185,13 +191,17 @@ def main() -> None:
     parser.add_argument("files", nargs="*")
     parser.add_argument("-p", "--promote", action="store_true")
     parser.add_argument("--loglevel", "-l", default="INFO")
+    parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args()
-    log.setLevel(args.loglevel.upper())
-    if run_tests(args.files, args.promote):
-        exit(1)
+    if args.verbose:
+        log.setLevel(logging.DEBUG)
     else:
-        exit(0)
-
+        log.setLevel(args.loglevel.upper())
+    with asyncio.Runner(debug=True) as runner:
+        if runner.run(run_tests(args.files, args.promote)):
+            exit(0)
+        else:
+            exit(1)
 
 if __name__ == "__main__":
     main()
