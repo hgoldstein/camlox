@@ -84,16 +84,16 @@ let push_frame vm frame =
  *   the function object with `this`
  *)
 let split_stack stack arg_count new_base =
-  let rec loop n acc = function
+  let old_stack = ref [] in
+  let rec loop n = function
     | [] -> failwith "Unexpected end of stack"
-    | hd :: tl when n = 0 -> (tl, hd, acc)
-    | hd :: tl -> loop (n - 1) (hd :: acc) tl
+    | hd :: tl when n = 0 -> (
+        old_stack := tl;
+        match new_base with None -> [ hd ] | Some m -> [ m ])
+    | hd :: tl -> hd :: loop (n - 1) tl
   in
-  let old_stack, obj, new_stack_reversed = loop arg_count [] stack in
-  ( old_stack,
-    List.rev
-    @@ ((match new_base with None -> obj | Some o -> o) :: new_stack_reversed)
-  )
+  let new_stack = loop arg_count stack in
+  (!old_stack, new_stack)
 
 let call_closure vm stack (closure : Chunk.closure) arg_count
     (bound_this : Chunk.value option) =
@@ -111,8 +111,7 @@ let call_value vm stack callee arg_count =
   match !callee with
   | Chunk.Native fn ->
       let new_stack, old_stack = List.split_n stack (arg_count + 1) in
-      let result = fn arg_count new_stack in
-      `Ok (result :: old_stack)
+      `Ok (fn arg_count new_stack :: old_stack)
   | Chunk.Closure closure -> call_closure vm stack closure arg_count None
   | Chunk.Class class_ -> (
       let instance = Chunk.Instance { class_; fields = Table.make () } in
@@ -134,13 +133,12 @@ let invoke (vm : t) stack method_ arg_count =
   | Chunk.Instance inst -> (
       match Table.find inst.fields method_ with
       | Some m ->
-          (* NOTE: I don't think this will have the right semantics if the number
-           * of arguments is incorrect. We will fall over with an exception whereas
-           * the reference implementation will fall over later.
-           *)
-          let m = ref m in
-          let old_stack, new_stack = split_stack stack arg_count (Some m) in
-          call_value vm (new_stack @ old_stack) m arg_count
+          let rec set i = function
+            | [] -> ()
+            | hd :: tl -> if i = 0 then hd := m else set (i - 1) tl
+          in
+          set arg_count stack;
+          call_value vm stack (ref m) arg_count
       | None -> (
           match Table.find inst.class_.methods method_ with
           | None ->

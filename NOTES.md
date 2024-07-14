@@ -10,6 +10,7 @@
 
 - [ ] There are a couple places in the compiler we we make use of a "sliding stack" data structure that's shared among different structs. We _could_ make something like this fairly easily building off of `Vector`
 - [ ] REPL seems to be broken
+- [ ] We don't actually protect against a stack overflow
 - Post book enhancements
   - [ ] Profile "fat" instructions versus a data pipeline
 

@@ -1,0 +1,11 @@
+class Container {
+  init() {
+    fun f(x) {
+      print "I got an: " + x;
+    }
+    this.f = f;
+  }
+}
+
+var c = Container();
+c.f();
