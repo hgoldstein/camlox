@@ -128,7 +128,7 @@ let consume parser k msg : unit =
   | _ -> error_at_current parser msg
 
 let code_size (parser : parser) =
-  Vector.length ~vec:parser.compiler.output.chunk.code
+  Vector.length parser.compiler.output.chunk.code
 
 let emit_byte (parser : parser) byte =
   Chunk.write_byte ~chunk:parser.compiler.output.chunk ~byte
@@ -152,9 +152,9 @@ let emit_loop parser loop_start =
 let patch_jump parser offset =
   let jump = code_size parser - offset - 2 in
   if jump > 0xFFFF then error parser "Too much code to jump over.";
-  Vector.set ~vec:parser.compiler.output.chunk.code ~index:offset
+  Vector.set parser.compiler.output.chunk.code ~index:offset
     ~value:(Char.of_int_exn @@ ((jump lsr 8) land 0xFF));
-  Vector.set ~vec:parser.compiler.output.chunk.code ~index:(offset + 1)
+  Vector.set parser.compiler.output.chunk.code ~index:(offset + 1)
     ~value:(Char.of_int_exn @@ (jump land 0xFF))
 
 let make_constant (p : parser) value =
@@ -360,7 +360,7 @@ and add_upvalue p compiler uv_index is_local =
   let rec find_existing_upvalue i =
     if i < 0 then None
     else
-      let uv = Vector.at ~vec:compiler.upvalues ~index:i in
+      let uv = Vector.at compiler.upvalues ~index:i in
       if Char.equal uv.index uv_index && Bool.equal uv.is_local is_local then
         Some i
       else find_existing_upvalue (i - 1)
@@ -371,7 +371,7 @@ and add_upvalue p compiler uv_index is_local =
         error p "Too many closure variables in function";
         0)
       else (
-        Vector.set_extend ~vec:compiler.upvalues ~index:upvalue_count
+        Vector.set_extend compiler.upvalues ~index:upvalue_count
           ~value:{ is_local; index = uv_index };
         compiler.output.upvalue_count <- upvalue_count + 1;
         upvalue_count)
@@ -681,7 +681,7 @@ and function_ ~kind p =
   p.compiler <- old_compiler;
   emit_closure p @@ Chunk.Function { fn with arity };
   for i = 0 to fn.upvalue_count - 1 do
-    let uv = Vector.at ~vec:compiler.upvalues ~index:i in
+    let uv = Vector.at compiler.upvalues ~index:i in
     emit_byte p @@ if uv.is_local then '\x01' else '\x00';
     emit_byte p uv.index
   done

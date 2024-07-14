@@ -19,7 +19,7 @@ type cycle_result = [ `Ok of Chunk.value list | `Error of Err.t | `End ]
 let read_byte vm =
   let index = vm.frame.ip in
   vm.frame.ip <- vm.frame.ip + 1;
-  Vector.at ~vec:vm.frame.closure.function_.chunk.code ~index
+  Vector.at vm.frame.closure.function_.chunk.code ~index
 
 let read_short vm =
   let hi_byte = read_byte vm in
@@ -28,7 +28,7 @@ let read_short vm =
 
 let read_constant vm =
   let index = Char.to_int @@ read_byte vm in
-  Vector.at ~vec:vm.frame.closure.function_.chunk.constants ~index
+  Vector.at vm.frame.closure.function_.chunk.constants ~index
 
 let fatal_runtime_error (_ : t) msg =
   Printf.eprintf "FATAL: %s\n" msg;
@@ -58,7 +58,7 @@ let print_stack vm =
 let runtime_error (vm : t) msg : cycle_result =
   let print_frame frame =
     Printf.eprintf "[line %d] in "
-      (Vector.at ~vec:frame.closure.function_.chunk.lines ~index:(frame.ip - 1));
+      (Vector.at frame.closure.function_.chunk.lines ~index:(frame.ip - 1));
     match frame.closure.function_.name with
     | None -> Printf.eprintf "script\n"
     | Some s -> Printf.eprintf "%s()\n" (String_val.get s)

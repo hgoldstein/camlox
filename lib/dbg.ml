@@ -9,36 +9,34 @@ let simple_instruction name offset =
   offset + 1
 
 let byte_instruction (chunk : Chunk.t) name offset =
-  let byte = Char.to_int @@ Vector.at ~vec:chunk.code ~index:(offset + 1) in
+  let byte = Char.to_int @@ Vector.at chunk.code ~index:(offset + 1) in
   Printf.printf "%-16s %4d\n" name byte;
   offset + 2
 
 let constant_instruction (chunk : Chunk.t) name offset =
-  let const = Char.to_int @@ Vector.at ~vec:chunk.code ~index:(offset + 1) in
+  let const = Char.to_int @@ Vector.at chunk.code ~index:(offset + 1) in
   Printf.printf "%-16s %4d " name const;
-  Chunk.print_value @@ Vector.at ~vec:chunk.constants ~index:const;
+  Chunk.print_value @@ Vector.at chunk.constants ~index:const;
   Printf.printf "\n";
   offset + 2
 
 let jump_instruction (chunk : Chunk.t) name sign offset =
   let jump =
-    ((Char.to_int @@ Vector.at ~vec:chunk.code ~index:(offset + 1)) lsl 8)
-    lor (Char.to_int @@ Vector.at ~vec:chunk.code ~index:(offset + 2))
+    ((Char.to_int @@ Vector.at chunk.code ~index:(offset + 1)) lsl 8)
+    lor (Char.to_int @@ Vector.at chunk.code ~index:(offset + 2))
   in
   Printf.printf "%-16s %4d -> %d\n" name offset (offset + 3 + (sign * jump));
   offset + 3
 
 let invoke_instruction (chunk : Chunk.t) name offset =
-  let const = Char.to_int @@ Vector.at ~vec:chunk.code ~index:(offset + 1) in
-  let arg_count =
-    Char.to_int @@ Vector.at ~vec:chunk.code ~index:(offset + 2)
-  in
+  let const = Char.to_int @@ Vector.at chunk.code ~index:(offset + 1) in
+  let arg_count = Char.to_int @@ Vector.at chunk.code ~index:(offset + 2) in
   Printf.printf "%-16s (%d args) %4d" name arg_count const;
-  Chunk.print_line @@ Vector.at ~vec:chunk.constants ~index:const;
+  Chunk.print_line @@ Vector.at chunk.constants ~index:const;
   offset + 3
 
 let print_line_number (c : Chunk.t) (offset : int) =
-  let f = Vector.at ~vec:c.lines in
+  let f = Vector.at c.lines in
   if offset > 0 && f ~index:offset = f ~index:(offset - 1) then
     Printf.printf "   | "
   else Printf.printf "%4d " (f ~index:offset)
@@ -47,7 +45,7 @@ let disassemble_instruction (c : Chunk.t) (offset : int) : int =
   let module Op = Opcode in
   Printf.printf "%04d " offset;
   print_line_number c offset;
-  match Op.of_byte (Vector.at ~vec:c.code ~index:offset) with
+  match Op.of_byte (Vector.at c.code ~index:offset) with
   | Op.Constant -> constant_instruction c "OP_CONSTANT" offset
   | Op.Return -> simple_instruction "OP_RETURN" offset
   | Op.Negate -> simple_instruction "OP_NEGATE" offset
@@ -76,8 +74,8 @@ let disassemble_instruction (c : Chunk.t) (offset : int) : int =
   | Op.GetUpvalue -> byte_instruction c "OP_GET_UPVALUE" offset
   | Op.SetUpvalue -> byte_instruction c "OP_SET_UPVALUE" offset
   | Op.Closure -> (
-      let constant = Char.to_int @@ Vector.at ~vec:c.code ~index:(offset + 1) in
-      let value = Vector.at ~vec:c.constants ~index:constant in
+      let constant = Char.to_int @@ Vector.at c.code ~index:(offset + 1) in
+      let value = Vector.at c.constants ~index:constant in
       Printf.printf "%-16s %4d " "OP_CLOSURE" constant;
       Chunk.print_value value;
       Printf.printf "\n";
@@ -86,8 +84,8 @@ let disassemble_instruction (c : Chunk.t) (offset : int) : int =
           let rec print_captures j offset =
             if j >= function_.upvalue_count then offset
             else
-              let is_local = Vector.at ~vec:c.code ~index:offset in
-              let index = Vector.at ~vec:c.code ~index:(offset + 1) in
+              let is_local = Vector.at c.code ~index:offset in
+              let index = Vector.at c.code ~index:(offset + 1) in
               Printf.printf "%04d      |                     %s %d\n" offset
                 (if Char.equal is_local '\x01' then "local" else "upvalue")
                 (Char.to_int index);
@@ -104,7 +102,7 @@ let disassemble_instruction (c : Chunk.t) (offset : int) : int =
 let disassemble_chunk (c : Chunk.t) (name : string) =
   Printf.printf "== %s ==\n" name;
   let rec aux offset =
-    if offset < Vector.length ~vec:c.code then
+    if offset < Vector.length c.code then
       aux @@ disassemble_instruction c offset
     else ()
   in

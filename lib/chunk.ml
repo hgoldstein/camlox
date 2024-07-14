@@ -87,20 +87,20 @@ let make () =
   }
 
 let write_byte ~chunk ~line ~byte =
-  Vector.write ~vec:chunk.code ~data:byte;
-  Vector.write ~vec:chunk.lines ~data:line
+  Vector.append chunk.code ~value:byte;
+  Vector.append chunk.lines ~value:line
 
 let write_op ~chunk ~line ~opcode =
-  Vector.write ~vec:chunk.code ~data:(Opcode.to_byte opcode);
-  Vector.write ~vec:chunk.lines ~data:line
+  Vector.append chunk.code ~value:(Opcode.to_byte opcode);
+  Vector.append chunk.lines ~value:line
 
 (* TODO(hgoldstein): Add some sort of int8 wrapper? *)
 let write_int_unsafe ~chunk ~line ~value =
-  Vector.write ~vec:chunk.code ~data:(Char.of_int_exn value);
-  Vector.write ~vec:chunk.lines ~data:line
+  Vector.append chunk.code ~value:(Char.of_int_exn value);
+  Vector.append chunk.lines ~value:line
 
 let add_constant ~chunk ~value =
-  Vector.write ~vec:chunk.constants ~data:value;
-  let idx = Vector.length ~vec:chunk.constants - 1 in
+  Vector.append chunk.constants ~value;
+  let idx = Vector.length chunk.constants - 1 in
   assert (idx >= 0 && idx <= 255);
   idx
