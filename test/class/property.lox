@@ -1,0 +1,12 @@
+class Brioche {
+  with(topping) {
+    this.topping = topping;
+  }
+  describe() {
+    print "brioche slathered with " + this.topping;
+  }
+}
+
+var b = Brioche();
+b.with("butter");
+b.describe();
