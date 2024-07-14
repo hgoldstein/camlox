@@ -69,6 +69,87 @@ let runtime_error (vm : t) msg : cycle_result =
   print_frames vm.frame_stack;
   `Error Err.Runtime
 
+let push_frame vm frame =
+  vm.frame_stack <- vm.frame :: vm.frame_stack;
+  vm.frame <- frame
+
+(*
+ * We need to slice the current stack into three sections:
+ *
+ *   | Stack values not in the function call | function obj | function call arguments |
+ *
+ * - The lower stack values are put back in place
+ * - The function call arguments always make up the new stack
+ * - Depending on if we're calling a function or a method, we replace
+ *   the function object with `this`
+ *)
+let split_stack stack arg_count new_base =
+  let rec loop n acc = function
+    | [] -> failwith "Unexpected end of stack"
+    | hd :: tl when n = 0 -> (tl, hd, acc)
+    | hd :: tl -> loop (n - 1) (hd :: acc) tl
+  in
+  let old_stack, obj, new_stack_reversed = loop arg_count [] stack in
+  ( old_stack,
+    List.rev
+    @@ ((match new_base with None -> obj | Some o -> o) :: new_stack_reversed)
+  )
+
+let call_closure vm stack (closure : Chunk.closure) arg_count
+    (bound_this : Chunk.value option) =
+  if arg_count <> closure.function_.arity then
+    runtime_error vm
+    @@ Printf.sprintf "Expected %d arguments but got %d" closure.function_.arity
+         arg_count
+  else
+    let old_stack, new_stack = split_stack stack arg_count bound_this in
+    vm.frame.stack <- old_stack;
+    push_frame vm @@ { ip = 0; closure; stack = [] };
+    `Ok new_stack
+
+let call_value vm stack callee arg_count =
+  match !callee with
+  | Chunk.Native fn ->
+      let new_stack, old_stack = List.split_n stack (arg_count + 1) in
+      let result = fn arg_count new_stack in
+      `Ok (result :: old_stack)
+  | Chunk.Closure closure -> call_closure vm stack closure arg_count None
+  | Chunk.Class class_ -> (
+      let instance = Chunk.Instance { class_; fields = Table.make () } in
+      match Table.find class_.methods vm.init_string with
+      | None when arg_count = 0 ->
+          (* The head of our stack should be the class ptr *)
+          `Ok (ref instance :: List.tl_exn stack)
+      | None ->
+          runtime_error vm
+            (Printf.sprintf "Expected 0 arguments but got %d" arg_count)
+      | Some m -> call_closure vm stack m arg_count (Some (ref instance)))
+  | Chunk.BoundMethod bm ->
+      call_closure vm stack bm.method_ arg_count (Some bm.receiver)
+  | _ -> runtime_error vm "Can only call functions and classes."
+
+let invoke (vm : t) stack method_ arg_count =
+  let callee = List.nth_exn stack arg_count in
+  match !callee with
+  | Chunk.Instance inst -> (
+      match Table.find inst.fields method_ with
+      | Some m ->
+          (* NOTE: I don't think this will have the right semantics if the number
+           * of arguments is incorrect. We will fall over with an exception whereas
+           * the reference implementation will fall over later.
+           *)
+          let m = ref m in
+          let old_stack, new_stack = split_stack stack arg_count (Some m) in
+          call_value vm (new_stack @ old_stack) m arg_count
+      | None -> (
+          match Table.find inst.class_.methods method_ with
+          | None ->
+              runtime_error vm
+                (Printf.sprintf "Undefined property '%s'."
+                   (String_val.get method_))
+          | Some m -> call_closure vm stack m arg_count (Some callee)))
+  | _ -> runtime_error vm "Only instances have methods."
+
 let rec run (vm : t) : (unit, Err.t) result =
   if Dbg.on () then (
     print_stack vm;
@@ -76,65 +157,6 @@ let rec run (vm : t) : (unit, Err.t) result =
     @@ Dbg.disassemble_instruction vm.frame.closure.function_.chunk vm.frame.ip);
   let module Op = Opcode in
   let nth_from_back wrt i = List.length wrt - Char.to_int i - 1 in
-  let push_frame vm frame =
-    vm.frame_stack <- vm.frame :: vm.frame_stack;
-    vm.frame <- frame
-  in
-  (*
-   * We need to slice the current stack into three sections:
-   *
-   *   | Stack values not in the function call | function obj | function call arguments |
-   *
-   * - The lower stack values are put back in place
-   * - The function call arguments always make up the new stack
-   * - Depending on if we're calling a function or a method, we replace
-   *   the function object with `this`
-   *)
-  let split_stack stack arg_count new_base =
-    let rec loop n acc = function
-      | [] -> failwith "Unexpected end of stack"
-      | hd :: tl when n = 0 -> (tl, hd, acc)
-      | hd :: tl -> loop (n - 1) (hd :: acc) tl
-    in
-    let old_stack, obj, new_stack_reversed = loop arg_count [] stack in
-    ( old_stack,
-      List.rev
-      @@ (match new_base with None -> obj | Some o -> o)
-         :: new_stack_reversed )
-  in
-  let call_closure vm stack (closure : Chunk.closure) arg_count
-      (bound_this : Chunk.value option) =
-    if arg_count <> closure.function_.arity then
-      runtime_error vm
-      @@ Printf.sprintf "Expected %d arguments but got %d"
-           closure.function_.arity arg_count
-    else
-      let old_stack, new_stack = split_stack stack arg_count bound_this in
-      vm.frame.stack <- old_stack;
-      push_frame vm @@ { ip = 0; closure; stack = [] };
-      `Ok new_stack
-  in
-  let call_value vm stack callee arg_count =
-    match !callee with
-    | Chunk.Native fn ->
-        let new_stack, old_stack = List.split_n stack (arg_count + 1) in
-        let result = fn arg_count new_stack in
-        `Ok (result :: old_stack)
-    | Chunk.Closure closure -> call_closure vm stack closure arg_count None
-    | Chunk.Class class_ -> (
-        let instance = Chunk.Instance { class_; fields = Table.make () } in
-        match Table.find class_.methods vm.init_string with
-        | None when arg_count = 0 ->
-            (* The head of our stack should be the class ptr *)
-            `Ok (ref instance :: List.tl_exn stack)
-        | None ->
-            runtime_error vm
-              (Printf.sprintf "Expected 0 arguments but got %d" arg_count)
-        | Some m -> call_closure vm stack m arg_count (Some (ref instance)))
-    | Chunk.BoundMethod bm ->
-        call_closure vm stack bm.method_ arg_count (Some bm.receiver)
-    | _ -> runtime_error vm "Can only call functions and classes."
-  in
   let res : cycle_result =
     match (Op.of_byte @@ read_byte vm, vm.frame.stack) with
     | Op.Return, result :: _ -> (
@@ -284,6 +306,10 @@ let rec run (vm : t) : (unit, Err.t) result =
         let method_name = read_string vm in
         Table.set cls.methods method_name v;
         `Ok (class_ref :: rest)
+    | Op.Invoke, stack ->
+        let method_ = read_string vm in
+        let arg_count = Char.to_int @@ read_byte vm in
+        invoke vm stack method_ arg_count
     (* Error cases *)
     | ( ( Op.Negate | Op.Not | Op.Print | Op.Pop | Op.DefineGlobal
         | Op.SetGlobal | Op.SetLocal | Op.JumpIfFalse | Op.Return

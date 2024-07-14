@@ -439,6 +439,12 @@ and dot p can_assign =
       expression p;
       emit_opcode p Op.SetProperty;
       emit_byte p name
+  | Token.LeftParen ->
+      advance p;
+      let arg_count = argument_list p in
+      emit_opcode p Op.Invoke;
+      emit_byte p name;
+      emit_byte p arg_count
   | _ ->
       emit_opcode p Op.GetProperty;
       emit_byte p name
