@@ -2,11 +2,16 @@ open Camlox
 
 let run_file filename =
   let open Core in
-  let f c = Vm.interpret @@ In_channel.input_all c in
-  match In_channel.with_file filename ~f with
-  | Ok () -> ()
-  | Error Err.Compile -> exit 65
-  | Error Err.Runtime -> exit 70
+  match Sys_unix.file_exists filename with
+  | `No | `Unknown ->
+      Printf.eprintf "%s: does not exist" filename;
+      exit 127
+  | `Yes -> (
+      let f c = Vm.interpret @@ In_channel.input_all c in
+      match In_channel.with_file filename ~f with
+      | Ok () -> ()
+      | Error Err.Compile -> exit 65
+      | Error Err.Runtime -> exit 70)
 
 let rec repl () =
   let open Core in
