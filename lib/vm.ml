@@ -328,6 +328,7 @@ let rec run (vm : t) : (unit, Err.t) result =
     | (Op.Less | Op.Greater), _ -> runtime_error vm "operands must be numbers"
     | (Op.Subtract | Op.Divide | Op.Multiply), _ ->
         runtime_error vm "operands must be two numbers"
+    | Op.Inherit, _ -> fatal_runtime_error vm "Expected two classes"
   in
   match res with
   | `Error e -> Error e

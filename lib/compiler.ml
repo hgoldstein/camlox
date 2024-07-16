@@ -711,6 +711,16 @@ and class_declaration p =
   emit_byte p name_const;
   define_variable p name_const;
   p.class_compiler <- () :: p.class_compiler;
+  (match p.current.kind with
+  | Token.Less ->
+      advance p;
+      consume p Token.Identifier "Expect superclass name.";
+      variable p false;
+      if identifiers_equal class_name p.previous then
+        error p "A class can't inherit from itself.";
+      named_variable p class_name false;
+      emit_opcode p Op.Inherit
+  | _ -> ());
   named_variable p class_name false;
   consume p Token.LeftBrace "Expect '{' before class body.";
   let rec collect_methods p =
