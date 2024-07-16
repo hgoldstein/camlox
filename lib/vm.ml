@@ -308,6 +308,12 @@ let rec run (vm : t) : (unit, Err.t) result =
         let method_ = read_string vm in
         let arg_count = Char.to_int @@ read_byte vm in
         invoke vm stack method_ arg_count
+    | ( Op.Inherit,
+        { contents = Chunk.Class child }
+        :: ({ contents = Chunk.Class parent } as r)
+        :: stack ) ->
+        Table.add_all ~src:parent.methods ~dest:child.methods;
+        `Ok (r :: stack)
     (* Error cases *)
     | ( ( Op.Negate | Op.Not | Op.Print | Op.Pop | Op.DefineGlobal
         | Op.SetGlobal | Op.SetLocal | Op.JumpIfFalse | Op.Return
@@ -328,7 +334,7 @@ let rec run (vm : t) : (unit, Err.t) result =
     | (Op.Less | Op.Greater), _ -> runtime_error vm "operands must be numbers"
     | (Op.Subtract | Op.Divide | Op.Multiply), _ ->
         runtime_error vm "operands must be two numbers"
-    | Op.Inherit, _ -> fatal_runtime_error vm "Expected two classes"
+    | Op.Inherit, _ -> runtime_error vm "Superclass must be a class"
   in
   match res with
   | `Error e -> Error e

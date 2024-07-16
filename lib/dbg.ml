@@ -31,8 +31,9 @@ let jump_instruction (chunk : Chunk.t) name sign offset =
 let invoke_instruction (chunk : Chunk.t) name offset =
   let const = Char.to_int @@ Vector.at chunk.code ~index:(offset + 1) in
   let arg_count = Char.to_int @@ Vector.at chunk.code ~index:(offset + 2) in
-  Printf.printf "%-16s (%d args) %4d" name arg_count const;
-  Chunk.print_line @@ Vector.at chunk.constants ~index:const;
+  Printf.printf "%-16s (%d args) %4d '" name arg_count const;
+  Chunk.print_value @@ Vector.at chunk.constants ~index:const;
+  Printf.printf "'\n";
   offset + 3
 
 let print_line_number (c : Chunk.t) (offset : int) =

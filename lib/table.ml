@@ -12,3 +12,7 @@ let set = StrTable.add
 let find = StrTable.find_opt
 let delete = StrTable.remove
 let mem = StrTable.mem
+
+let add_all ~src ~dest =
+  let f key value = set dest key value in
+  StrTable.iter f src
