@@ -101,6 +101,7 @@ let disassemble_instruction (c : Chunk.t) (offset : int) : int =
   | Op.Invoke -> invoke_instruction c "OP_INVOKE" offset
   | Op.Inherit -> simple_instruction "OP_INHERIT" offset
   | Op.GetSuper -> constant_instruction c "OP_GET_SUPER" offset
+  | Op.SuperInvoke -> invoke_instruction c "OP_SUPER_INVOKE" offset
 
 let disassemble_chunk (c : Chunk.t) (name : string) =
   Printf.printf "== %s ==\n" name;

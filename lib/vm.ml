@@ -331,6 +331,15 @@ let rec run (vm : t) : (unit, Err.t) result =
                  (Chunk.BoundMethod
                     { method_ = m; receiver = ref (Chunk.Instance inst) })
               :: stack))
+    | Op.SuperInvoke, { contents = Chunk.Class cls } :: stack -> (
+        let method_ = read_string vm in
+        let arg_count = Char.to_int @@ read_byte vm in
+        match Table.find cls.methods method_ with
+        | None ->
+            runtime_error vm
+              (Printf.sprintf "Undefined property '%s'."
+                 (String_val.get method_))
+        | Some m_ -> call_closure vm stack m_ arg_count None)
     (* Error cases *)
     | ( ( Op.Negate | Op.Not | Op.Print | Op.Pop | Op.DefineGlobal
         | Op.SetGlobal | Op.SetLocal | Op.JumpIfFalse | Op.Return
@@ -353,6 +362,8 @@ let rec run (vm : t) : (unit, Err.t) result =
         runtime_error vm "operands must be two numbers"
     | Op.Inherit, _ -> runtime_error vm "Superclass must be a class"
     | Op.GetSuper, _ -> fatal_runtime_error vm "Cannot get super of non-class"
+    | Op.SuperInvoke, _ ->
+        fatal_runtime_error vm "Cannot invoke super of non-class "
   in
   match res with
   | `Error e -> Error e

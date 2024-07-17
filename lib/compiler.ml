@@ -489,9 +489,18 @@ and super_ p _ =
   consume p Token.Identifier "Expect superclass method name.";
   let name = identifier_constant p p.previous in
   named_variable p (synthetic_token "this") false;
-  named_variable p (synthetic_token "super") false;
-  emit_opcode p Op.GetSuper;
-  emit_byte p name
+  match p.current.kind with
+  | Token.LeftParen ->
+      advance p;
+      let arg_count = argument_list p in
+      named_variable p (synthetic_token "super") false;
+      emit_opcode p Op.SuperInvoke;
+      emit_byte p name;
+      emit_byte p arg_count
+  | _ ->
+      named_variable p (synthetic_token "super") false;
+      emit_opcode p Op.GetSuper;
+      emit_byte p name
 
 and get_rule : Token.kind -> rule =
   let open Precedence in
