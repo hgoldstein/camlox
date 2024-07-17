@@ -314,6 +314,23 @@ let rec run (vm : t) : (unit, Err.t) result =
         :: stack ) ->
         Table.add_all ~src:parent.methods ~dest:child.methods;
         `Ok (r :: stack)
+    | ( Op.GetSuper,
+        { contents = Chunk.Class supercls }
+        :: { contents = Chunk.Instance inst }
+        :: stack ) -> (
+        let method_ = read_string vm in
+        (* NOTE: This could be combined with the impl for GetProperty *)
+        match Table.find supercls.methods method_ with
+        | None ->
+            runtime_error vm
+              (Printf.sprintf "Undefined property '%s'."
+                 (String_val.get method_))
+        | Some m ->
+            `Ok
+              (ref
+                 (Chunk.BoundMethod
+                    { method_ = m; receiver = ref (Chunk.Instance inst) })
+              :: stack))
     (* Error cases *)
     | ( ( Op.Negate | Op.Not | Op.Print | Op.Pop | Op.DefineGlobal
         | Op.SetGlobal | Op.SetLocal | Op.JumpIfFalse | Op.Return
@@ -335,6 +352,7 @@ let rec run (vm : t) : (unit, Err.t) result =
     | (Op.Subtract | Op.Divide | Op.Multiply), _ ->
         runtime_error vm "operands must be two numbers"
     | Op.Inherit, _ -> runtime_error vm "Superclass must be a class"
+    | Op.GetSuper, _ -> fatal_runtime_error vm "Cannot get super of non-class"
   in
   match res with
   | `Error e -> Error e

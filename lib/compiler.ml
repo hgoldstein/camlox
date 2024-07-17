@@ -1,7 +1,7 @@
 open Core
 
 type upvalue = { is_local : bool; index : char }
-type class_compiler = unit
+type class_compiler = { mutable has_superclass : bool }
 type function_kind = [ `Function | `Script | `Method | `Initializer ]
 
 type compiler = {
@@ -181,13 +181,12 @@ let number p _ =
 let identifier_constant (p : parser) (token : Token.t) =
   make_constant p @@ String_arena.value p.arena token.content
 
-let add_local p =
+let add_local p name =
   if List.length p.compiler.local_tracker.locals > 255 then
     error p "Too many local variables in function."
   else
     p.compiler.local_tracker.locals <-
-      Locals.{ depth = -1; name = p.previous }
-      :: p.compiler.local_tracker.locals
+      Locals.{ depth = -1; name } :: p.compiler.local_tracker.locals
 
 let identifiers_equal (a : Token.t) (b : Token.t) =
   String.equal a.content b.content
@@ -205,7 +204,7 @@ let declare_variable p =
   if p.compiler.local_tracker.scope_depth = 0 then ()
   else (
     detect_duplicate p.compiler.local_tracker.locals;
-    add_local p)
+    add_local p p.previous)
 
 let parse_variable p msg =
   consume p Token.Identifier msg;
@@ -263,6 +262,9 @@ let end_scope p =
         pop_locals ls
   in
   p.compiler.local_tracker.locals <- pop_locals p.compiler.local_tracker.locals
+
+let synthetic_token content : Token.t =
+  { content; kind = Token.Error; line = 0 }
 
 let synchronize p =
   p.panic_mode <- false;
@@ -477,6 +479,20 @@ and this_ p _ =
     error p "Can't use 'this' outside of a class."
   else variable p false
 
+and super_ p _ =
+  (match p.class_compiler with
+  | [] -> error p "Can't use 'super' outside of a class."
+  | cc :: _ when not cc.has_superclass ->
+      error p "Can't use 'super' in a class with no superclass."
+  | _ -> ());
+  consume p Token.Dot "Expect '.' after super.";
+  consume p Token.Identifier "Expect superclass method name.";
+  let name = identifier_constant p p.previous in
+  named_variable p (synthetic_token "this") false;
+  named_variable p (synthetic_token "super") false;
+  emit_opcode p Op.GetSuper;
+  emit_byte p name
+
 and get_rule : Token.kind -> rule =
   let open Precedence in
   let make_rule ?(prefix = None) ?(infix = None) ?(prec = NoPrec) () =
@@ -507,6 +523,7 @@ and get_rule : Token.kind -> rule =
   | Token.Or -> make_rule ~infix:(Some or_) ~prec:Or ()
   | Token.Dot -> make_rule ~infix:(Some dot) ~prec:Call ()
   | Token.This -> make_rule ~prefix:(Some this_) ()
+  | Token.Super -> make_rule ~prefix:(Some super_) ()
   | _ -> make_rule ()
 
 and print_statement p =
@@ -710,7 +727,7 @@ and class_declaration p =
   emit_opcode p Op.Class;
   emit_byte p name_const;
   define_variable p name_const;
-  p.class_compiler <- () :: p.class_compiler;
+  p.class_compiler <- { has_superclass = false } :: p.class_compiler;
   (match p.current.kind with
   | Token.Less ->
       advance p;
@@ -718,8 +735,12 @@ and class_declaration p =
       variable p false;
       if identifiers_equal class_name p.previous then
         error p "A class can't inherit from itself.";
+      begin_scope p;
+      add_local p @@ synthetic_token "super";
+      define_variable p '\x00';
       named_variable p class_name false;
-      emit_opcode p Op.Inherit
+      emit_opcode p Op.Inherit;
+      (List.hd_exn p.class_compiler).has_superclass <- true
   | _ -> ());
   named_variable p class_name false;
   consume p Token.LeftBrace "Expect '{' before class body.";
@@ -733,6 +754,7 @@ and class_declaration p =
   collect_methods p;
   consume p Token.RightBrace "Expect '}' after class body.";
   emit_opcode p Op.Pop;
+  if (List.hd_exn p.class_compiler).has_superclass then end_scope p;
   p.class_compiler <- List.tl_exn p.class_compiler
 
 and declaration p =
