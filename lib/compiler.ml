@@ -659,12 +659,15 @@ and statement p =
   | _ -> expression_statement p
 
 and block p =
-  match p.current.kind with
-  | Token.RightBrace | Token.Eof ->
-      consume p Token.RightBrace "Expect '}' after block."
-  | _ ->
-      declaration p;
-      block p
+  let rec declarations p =
+    match p.current.kind with
+    | Token.Eof | Token.RightBrace -> ()
+    | _ ->
+        declaration p;
+        declarations p
+  in
+  declarations p;
+  consume p Token.RightBrace "Expect '}' after block."
 
 and var_declaration p =
   let global = parse_variable p "Expect variable name." in
@@ -767,7 +770,7 @@ and class_declaration p =
   p.class_compiler <- List.tl_exn p.class_compiler
 
 and declaration p =
-  match p.current.kind with
+  (match p.current.kind with
   | Token.Var ->
       advance p;
       var_declaration p
@@ -777,20 +780,20 @@ and declaration p =
   | Token.Class ->
       advance p;
       class_declaration p
-  | _ -> statement p
-
-and declarations p =
-  match p.current.kind with
-  | Token.Eof ->
-      advance p;
-      ()
-  | _ ->
-      declaration p;
-      if p.panic_mode then synchronize p;
-      declarations p
+  | _ -> statement p);
+  if p.panic_mode then synchronize p
 
 let compile (source : string) : (Chunk.function_ * String_arena.t, Err.t) result
     =
+  let rec declarations p =
+    match p.current.kind with
+    | Token.Eof ->
+        advance p;
+        ()
+    | _ ->
+        declaration p;
+        declarations p
+  in
   let p : parser =
     {
       scanner = Scanner.of_string source;
