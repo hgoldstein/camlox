@@ -52,7 +52,7 @@ let show_value =
   | String s -> Printf.sprintf "%s" (String_val.get s)
   | Function f -> show_function f
   | Closure { function_; _ } -> show_function function_
-  | Native _ -> "<native>"
+  | Native _ -> "<native fn>"
   | Class c -> Printf.sprintf "%s" (String_val.get c.name)
   | Instance i -> Printf.sprintf "%s instance" (String_val.get i.class_.name)
   | BoundMethod bm -> show_function bm.method_.function_
@@ -77,7 +77,7 @@ let equal a b =
   | Bool a, Bool b -> Bool.equal a b
   | Nil, Nil -> true
   | String a, String b -> phys_equal a b
-  | _, _ -> false
+  | a, b -> phys_equal a b
 
 let make () =
   {
@@ -101,6 +101,4 @@ let write_int_unsafe ~chunk ~line ~value =
 
 let add_constant ~chunk ~value =
   Vector.append chunk.constants ~value;
-  let idx = Vector.length chunk.constants - 1 in
-  assert (idx >= 0 && idx <= 255);
-  idx
+  Vector.length chunk.constants - 1

@@ -370,7 +370,7 @@ and add_upvalue p compiler uv_index is_local =
   match find_existing_upvalue (upvalue_count - 1) with
   | None ->
       if upvalue_count > 0xFF then (
-        error p "Too many closure variables in function";
+        error p "Too many closure variables in function.";
         0)
       else (
         Vector.set_extend compiler.upvalues ~index:upvalue_count
@@ -454,7 +454,7 @@ and dot p can_assign =
 and argument_list p =
   let rec gather_args count =
     expression p;
-    if count = 255 then error p "Can't have more than 255 arguments.";
+    if count = 256 then error p "Can't have more than 255 arguments.";
     match p.current.kind with
     | Token.Comma ->
         advance p;
@@ -467,7 +467,7 @@ and argument_list p =
     | _ -> gather_args 1 (* We know at least one arg will follow *)
   in
   consume p Token.RightParen "Expect ')' after arguments.";
-  Char.of_int_exn count
+  Char.of_int_exn (count land 0xFF)
 
 and call p _ =
   let arg_count = argument_list p in
@@ -485,7 +485,7 @@ and super_ p _ =
   | cc :: _ when not cc.has_superclass ->
       error p "Can't use 'super' in a class with no superclass."
   | _ -> ());
-  consume p Token.Dot "Expect '.' after super.";
+  consume p Token.Dot "Expect '.' after 'super'.";
   consume p Token.Identifier "Expect superclass method name.";
   let name = identifier_constant p p.previous in
   named_variable p (synthetic_token "this") false;
@@ -686,7 +686,7 @@ and function_ ~kind p =
   let rec collect_arguments arity =
     let arity = arity + 1 in
     if arity > 255 then
-      error_at_current p "Cannot have more than 255 parameters.";
+      error_at_current p "Can't have more than 255 parameters.";
     let c = parse_variable p "Expect parameter name." in
     define_variable p c;
     match p.current.kind with
@@ -701,7 +701,7 @@ and function_ ~kind p =
     match p.current.kind with Token.RightParen -> 0 | _ -> collect_arguments 0
   in
   consume p Token.RightParen "Expect ')' after parameters.";
-  consume p Token.LeftBrace "Expect '{' before function body";
+  consume p Token.LeftBrace "Expect '{' before function body.";
   block p;
   let fn = end_compiler p in
   p.compiler <- old_compiler;

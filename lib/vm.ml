@@ -12,9 +12,12 @@ type t = {
   init_string : String_val.t;
   mutable frame : call_frame;
   mutable frame_stack : call_frame list;
+  mutable frame_count : int;
 }
 
 type cycle_result = [ `Ok of Chunk.value list | `Error of Err.t | `End ]
+
+let max_frames = 64
 
 let read_byte vm =
   let index = vm.frame.ip in
@@ -99,11 +102,13 @@ let call_closure vm stack (closure : Chunk.closure) arg_count
     (bound_this : Chunk.value option) =
   if arg_count <> closure.function_.arity then
     runtime_error vm
-    @@ Printf.sprintf "Expected %d arguments but got %d" closure.function_.arity
-         arg_count
+    @@ Printf.sprintf "Expected %d arguments but got %d."
+         closure.function_.arity arg_count
+  else if vm.frame_count = max_frames then runtime_error vm "Stack overflow."
   else
     let old_stack, new_stack = split_stack stack arg_count bound_this in
     vm.frame.stack <- old_stack;
+    vm.frame_count <- vm.frame_count + 1;
     push_frame vm @@ { ip = 0; closure; stack = [] };
     `Ok new_stack
 
@@ -121,7 +126,7 @@ let call_value vm stack callee arg_count =
           `Ok (ref instance :: List.tl_exn stack)
       | None ->
           runtime_error vm
-            (Printf.sprintf "Expected 0 arguments but got %d" arg_count)
+            (Printf.sprintf "Expected 0 arguments but got %d." arg_count)
       | Some m -> call_closure vm stack m arg_count (Some (ref instance)))
   | Chunk.BoundMethod bm ->
       call_closure vm stack bm.method_ arg_count (Some bm.receiver)
@@ -163,6 +168,7 @@ let rec run (vm : t) : (unit, Err.t) result =
         | f :: fs ->
             vm.frame <- f;
             vm.frame_stack <- fs;
+            vm.frame_count <- vm.frame_count - 1;
             `Ok (result :: vm.frame.stack))
     | Op.Constant, vs -> `Ok (ref (read_constant vm) :: vs)
     | Op.Negate, { contents = Float f } :: vs ->
@@ -346,7 +352,7 @@ let rec run (vm : t) : (unit, Err.t) result =
         | Op.SetUpvalue | Op.GetProperty ),
         [] ) ->
         fatal_runtime_error vm "Not enough arguments on stack."
-    | Op.Negate, _ -> runtime_error vm "operand must be a number"
+    | Op.Negate, _ -> runtime_error vm "Operand must be a number."
     | ( ( Op.Add | Op.Subtract | Op.Divide | Op.Multiply | Op.Equal | Op.Greater
         | Op.Less | Op.SetProperty | Op.Method ),
         ([] | [ _ ]) ) ->
@@ -357,10 +363,10 @@ let rec run (vm : t) : (unit, Err.t) result =
     | Op.SetProperty, _ -> runtime_error vm "Only instances have fields."
     | Op.Method, _ ->
         fatal_runtime_error vm "Unexpected operands for OP_METHOD."
-    | (Op.Less | Op.Greater), _ -> runtime_error vm "operands must be numbers"
+    | (Op.Less | Op.Greater), _ -> runtime_error vm "Operands must be numbers."
     | (Op.Subtract | Op.Divide | Op.Multiply), _ ->
-        runtime_error vm "operands must be two numbers"
-    | Op.Inherit, _ -> runtime_error vm "Superclass must be a class"
+        runtime_error vm "Operands must be numbers."
+    | Op.Inherit, _ -> runtime_error vm "Superclass must be a class."
     | Op.GetSuper, _ -> fatal_runtime_error vm "Cannot get super of non-class"
     | Op.SuperInvoke, _ ->
         fatal_runtime_error vm "Cannot invoke super of non-class "
@@ -392,6 +398,7 @@ let interpret_function (function_ : Chunk.function_) (strings : String_arena.t)
       globals = Table.make ();
       frame = { closure; ip = 0; stack = [ Chunk.closure closure ] };
       frame_stack = [];
+      frame_count = 1;
     }
   in
   define_native vm "clock" clock;
