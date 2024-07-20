@@ -219,11 +219,18 @@ let rec run (vm : t) : (unit, Err.t) result =
           `Ok (v :: stack))
     | Op.GetLocal, stack ->
         let slot = nth_from_back stack @@ read_byte vm in
-        `Ok (List.nth_exn stack slot :: stack)
+        (* When we get a local, we are allocating a new slot on the stack, so
+         * the correct semantics are to create a new reference.
+         *)
+        let local = !(List.nth_exn stack slot) in
+        `Ok (ref local :: stack)
     | Op.SetLocal, (top :: _ as stack) ->
         let slot = nth_from_back stack @@ read_byte vm in
-        let f idx v = if idx = slot then top else v in
-        `Ok (List.mapi stack ~f)
+        (* When we *set* a local, we are replacing an allocated stack
+         * slot, so the correct references are to write to the slot.
+         *)
+        List.nth_exn stack slot := !top;
+        `Ok stack
     | Op.JumpIfFalse, (top :: _ as stack) ->
         let offset = read_short vm in
         if Chunk.is_falsey top then vm.frame.ip <- vm.frame.ip + offset;
@@ -270,13 +277,18 @@ let rec run (vm : t) : (unit, Err.t) result =
               ("Cannot make into closure: " ^ Chunk.show_value v))
     | Op.GetUpvalue, stack ->
         let slot = read_byte vm in
-        (* NOTE: I think this is the correct semantics ... *)
+        (* When we allocate a new object onto the stack, it should be a
+         * separate reference.
+         *)
         let v = !(Array.get vm.frame.closure.upvalues (Char.to_int slot)) in
         `Ok (ref v :: stack)
     | Op.SetUpvalue, (top :: _ as stack) ->
         let slot = read_byte vm in
         let uv = Array.get vm.frame.closure.upvalues (Char.to_int slot) in
-        (* NOTE: I should figure out how best to test these semantics *)
+        (* When we *set* an upvalue, we are replacing an allocated stack
+         * slot which may be used elsewhere, so the correct semantics
+         * are to write to the slot.
+         *)
         uv := !top;
         `Ok stack
     | Op.Class, stack ->
