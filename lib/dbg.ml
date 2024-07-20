@@ -15,9 +15,9 @@ let byte_instruction (chunk : Chunk.t) name offset =
 
 let constant_instruction (chunk : Chunk.t) name offset =
   let const = Char.to_int @@ Vector.at chunk.code ~index:(offset + 1) in
-  Printf.printf "%-16s %4d " name const;
+  Printf.printf "%-16s %4d '" name const;
   Chunk.print_value @@ Vector.at chunk.constants ~index:const;
-  Printf.printf "\n";
+  Printf.printf "'\n";
   offset + 2
 
 let jump_instruction (chunk : Chunk.t) name sign offset =
