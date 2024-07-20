@@ -4,7 +4,7 @@ let run_file filename =
   let open Core in
   match Sys_unix.file_exists filename with
   | `No | `Unknown ->
-      Printf.eprintf "%s: does not exist" filename;
+      Printf.eprintf "%s: does not exist\n" filename;
       exit 127
   | `Yes -> (
       let f c = Vm.interpret (Vm.make ()) @@ In_channel.input_all c in
@@ -31,14 +31,8 @@ let repl () =
 let param =
   let open Command.Param in
   let ( let+ ) = ( >>| ) in
-  let ( and+ ) = both in
-  let+ file = anon @@ maybe ("FILE" %: string)
-  and+ verbose =
-    flag ~aliases:[ "v" ] "verbose" no_arg ~doc:"Turn on debug exec"
-  in
-  fun () ->
-    if verbose then Dbg.enable ();
-    match file with None -> repl () | Some f -> run_file f
+  let+ file = anon @@ maybe ("FILE" %: string) in
+  fun () -> match file with None -> repl () | Some f -> run_file f
 
 let () =
   Command_unix.run @@ Command.basic ~summary:"Bytecode VM for `lox`" param

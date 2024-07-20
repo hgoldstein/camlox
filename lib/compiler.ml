@@ -277,7 +277,7 @@ let emit_return p =
 let end_compiler p =
   emit_return p;
   let output = make_function p.compiler.output in
-  (if Dbg.on () && not p.had_error then
+  (if Dbg.on && not p.had_error then
      let name =
        match p.compiler.output.name with
        | None -> "<script>"

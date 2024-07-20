@@ -1,8 +1,6 @@
 open Core
 
-let state = ref false
-let on () = !state
-let enable () = state := true
+let on = false
 
 let simple_instruction name offset =
   Printf.printf "%s\n" name;

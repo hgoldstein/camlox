@@ -15,7 +15,13 @@
     (name profiling-auto)
     (instrument_with landmarks)
     (env
-      (_ (env-vars ("OCAML_LANDMARKS" "auto")))
+      (_ (env-vars ("OCAML_LANDMARKS" "auto,format=json,output=temporary")))
     )
   )
+)
+(context
+    (default
+        (name release)
+        (profile release)
+    )
 )

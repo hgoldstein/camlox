@@ -181,7 +181,7 @@ let bind_method (cls : Chunk.class_) method_name instance stack rte =
         :: stack)
 
 let rec run (vm : t) (frame : call_frame) : (unit, Err.t) result =
-  if Dbg.on () then (
+  if Dbg.on then (
     print_stack frame;
     ignore @@ Dbg.disassemble_instruction frame.closure.function_.chunk frame.ip);
   let module Op = Opcode in

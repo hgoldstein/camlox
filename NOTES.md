@@ -9,8 +9,6 @@
 ## Backlog
 
 - [ ] There are a couple places in the compiler we we make use of a "sliding stack" data structure that's shared among different structs. We _could_ make something like this fairly easily building off of `Vector`
-- [ ] REPL seems to be broken
-- [ ] We don't actually protect against a stack overflow
 - Post book enhancements
   - [ ] Profile "fat" instructions versus a data pipeline
 
@@ -19,3 +17,5 @@
   - Didn't quite need to do this, turns out just wrapping everything in a ref is easier
 - [x] Flatten `object` hierarchy, doesn't need to be nested as we don't need to support the metadata.
 - [x] Refactor vm main cycle to return "`Ok of stack" or error
+- [x] REPL seems to be broken
+- [x] We don't actually protect against a stack overflow
