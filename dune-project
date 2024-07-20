@@ -17,6 +17,10 @@
  (name camlox)
  (synopsis "A short synopsis")
  (description "A longer description")
- (depends ocaml dune core core_unix ppx_deriving))
+ (depends
+    ocaml dune core core_unix ppx_deriving
+    (landmarks-ppx (and :dev (>= 1.4)))
+ )
+)
 
 ; See the complete stanza docs at https://dune.readthedocs.io/en/stable/dune-files.html#dune-project

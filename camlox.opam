@@ -13,6 +13,7 @@ depends: [
   "core"
   "core_unix"
   "ppx_deriving"
+  "landmarks-ppx" {dev & >= "1.4"}
   "odoc" {with-doc}
 ]
 build: [
