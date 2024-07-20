@@ -2,7 +2,7 @@ open Core
 
 type call_frame = {
   closure : Chunk.closure;
-  mutable stack : Chunk.value list;
+  stack : Chunk.value list;
   mutable ip : int;
 }
 
@@ -10,30 +10,33 @@ type t = {
   strings : String_arena.t;
   globals : Chunk.value Table.t;
   init_string : String_val.t;
-  mutable frame : call_frame;
   mutable frame_stack : call_frame list;
   mutable frame_count : int;
 }
 
-type cycle_result = [ `Ok of Chunk.value list | `Error of Err.t | `End ]
+type cycle_result =
+  [ `Ok of Chunk.value list
+  | `Error of Err.t
+  | `Return of Chunk.value
+  | `Call of call_frame ]
 
 let max_frames = 64
 
-let read_byte vm =
-  let index = vm.frame.ip in
-  vm.frame.ip <- vm.frame.ip + 1;
-  Vector.at vm.frame.closure.function_.chunk.code ~index
+let read_byte frame =
+  let index = frame.ip in
+  frame.ip <- frame.ip + 1;
+  Vector.at frame.closure.function_.chunk.code ~index
 
-let read_short vm =
-  let hi_byte = read_byte vm in
-  let lo_byte = read_byte vm in
+let read_short frame =
+  let hi_byte = read_byte frame in
+  let lo_byte = read_byte frame in
   (Char.to_int hi_byte lsl 8) lor Char.to_int lo_byte
 
-let read_constant vm =
-  let index = Char.to_int @@ read_byte vm in
-  Vector.at vm.frame.closure.function_.chunk.constants ~index
+let read_constant frame =
+  let index = Char.to_int @@ read_byte frame in
+  Vector.at frame.closure.function_.chunk.constants ~index
 
-let fatal_runtime_error (_ : t) msg =
+let fatal_runtime_error msg =
   Printf.eprintf "FATAL: %s\n" msg;
   exit 2
 
@@ -41,24 +44,24 @@ let define_native vm name defn =
   let name = String_arena.get vm.strings name in
   Table.set vm.globals name @@ ref (Chunk.Native defn)
 
-let read_string vm =
-  match read_constant vm with
+let read_string frame =
+  match read_constant frame with
   | Chunk.String s -> s
   | v ->
-      fatal_runtime_error vm
+      fatal_runtime_error
         (Printf.sprintf "Expected string constant, got: %s" (Chunk.show_value v))
 
-let print_stack vm =
+let print_stack frame =
   Printf.printf "          ";
   List.iter ~f:(fun v ->
       Printf.printf "[ ";
       Chunk.print_value !v;
       Printf.printf " ]")
-  @@ List.rev vm.frame.stack;
+  @@ List.rev frame.stack;
   Printf.printf "\n";
   ()
 
-let runtime_error (vm : t) msg : cycle_result =
+let runtime_error (vm : t) (current_frame : call_frame) msg : cycle_result =
   let print_frame frame =
     Printf.eprintf "[line %d] in "
       (Vector.at frame.closure.function_.chunk.lines ~index:(frame.ip - 1));
@@ -68,13 +71,21 @@ let runtime_error (vm : t) msg : cycle_result =
   in
   let print_frames = List.iter ~f:print_frame in
   Printf.eprintf "%s\n" msg;
-  print_frame vm.frame;
+  print_frame current_frame;
   print_frames vm.frame_stack;
   `Error Err.Runtime
 
 let push_frame vm frame =
-  vm.frame_stack <- vm.frame :: vm.frame_stack;
-  vm.frame <- frame
+  vm.frame_stack <- frame :: vm.frame_stack;
+  vm.frame_count <- vm.frame_count + 1
+
+let pop_frame vm =
+  match vm.frame_stack with
+  | [] -> None
+  | frame :: other_frames ->
+      vm.frame_count <- vm.frame_count - 1;
+      vm.frame_stack <- other_frames;
+      Some frame
 
 (*
  * We need to slice the current stack into three sections:
@@ -98,26 +109,26 @@ let split_stack stack arg_count new_base =
   let new_stack = loop arg_count stack in
   (!old_stack, new_stack)
 
-let call_closure vm stack (closure : Chunk.closure) arg_count
-    (bound_this : Chunk.value option) =
+let call_closure vm current_frame stack (closure : Chunk.closure) arg_count
+    (bound_this : Chunk.value option) : cycle_result =
   if arg_count <> closure.function_.arity then
-    runtime_error vm
+    runtime_error vm current_frame
     @@ Printf.sprintf "Expected %d arguments but got %d."
          closure.function_.arity arg_count
-  else if vm.frame_count = max_frames then runtime_error vm "Stack overflow."
+  else if vm.frame_count = max_frames then
+    runtime_error vm current_frame "Stack overflow."
   else
     let old_stack, new_stack = split_stack stack arg_count bound_this in
-    vm.frame.stack <- old_stack;
-    vm.frame_count <- vm.frame_count + 1;
-    push_frame vm @@ { ip = 0; closure; stack = [] };
-    `Ok new_stack
+    push_frame vm @@ { current_frame with stack = old_stack };
+    `Call { ip = 0; closure; stack = new_stack }
 
-let call_value vm stack callee arg_count =
+let call_value (vm : t) (current_frame : call_frame) stack callee arg_count =
   match !callee with
   | Chunk.Native fn ->
       let new_stack, old_stack = List.split_n stack (arg_count + 1) in
       `Ok (fn arg_count new_stack :: old_stack)
-  | Chunk.Closure closure -> call_closure vm stack closure arg_count None
+  | Chunk.Closure closure ->
+      call_closure vm current_frame stack closure arg_count None
   | Chunk.Class class_ -> (
       let instance = Chunk.Instance { class_; fields = Table.make () } in
       match Table.find class_.methods vm.init_string with
@@ -125,14 +136,16 @@ let call_value vm stack callee arg_count =
           (* The head of our stack should be the class ptr *)
           `Ok (ref instance :: List.tl_exn stack)
       | None ->
-          runtime_error vm
+          runtime_error vm current_frame
             (Printf.sprintf "Expected 0 arguments but got %d." arg_count)
-      | Some m -> call_closure vm stack m arg_count (Some (ref instance)))
+      | Some m ->
+          call_closure vm current_frame stack m arg_count (Some (ref instance)))
   | Chunk.BoundMethod bm ->
-      call_closure vm stack bm.method_ arg_count (Some bm.receiver)
-  | _ -> runtime_error vm "Can only call functions and classes."
+      call_closure vm current_frame stack bm.method_ arg_count
+        (Some bm.receiver)
+  | _ -> runtime_error vm current_frame "Can only call functions and classes."
 
-let invoke (vm : t) stack method_ arg_count =
+let invoke (vm : t) current_frame stack method_ arg_count =
   let callee = List.nth_exn stack arg_count in
   match !callee with
   | Chunk.Instance inst -> (
@@ -143,34 +156,28 @@ let invoke (vm : t) stack method_ arg_count =
             | hd :: tl -> if i = 0 then hd := m else set (i - 1) tl
           in
           set arg_count stack;
-          call_value vm stack (ref m) arg_count
+          call_value vm current_frame stack (ref m) arg_count
       | None -> (
           match Table.find inst.class_.methods method_ with
           | None ->
-              runtime_error vm
+              runtime_error vm current_frame
                 (Printf.sprintf "Undefined property '%s'."
                    (String_val.get method_))
-          | Some m -> call_closure vm stack m arg_count (Some callee)))
-  | _ -> runtime_error vm "Only instances have methods."
+          | Some m ->
+              call_closure vm current_frame stack m arg_count (Some callee)))
+  | _ -> runtime_error vm current_frame "Only instances have methods."
 
-let rec run (vm : t) : (unit, Err.t) result =
+let rec run (vm : t) (frame : call_frame) : (unit, Err.t) result =
   if Dbg.on () then (
-    print_stack vm;
-    ignore
-    @@ Dbg.disassemble_instruction vm.frame.closure.function_.chunk vm.frame.ip);
+    print_stack frame;
+    ignore @@ Dbg.disassemble_instruction frame.closure.function_.chunk frame.ip);
   let module Op = Opcode in
+  let runtime_error = runtime_error vm frame in
   let nth_from_back wrt i = List.length wrt - Char.to_int i - 1 in
   let res : cycle_result =
-    match (Op.of_byte @@ read_byte vm, vm.frame.stack) with
-    | Op.Return, result :: _ -> (
-        match vm.frame_stack with
-        | [] -> `End
-        | f :: fs ->
-            vm.frame <- f;
-            vm.frame_stack <- fs;
-            vm.frame_count <- vm.frame_count - 1;
-            `Ok (result :: vm.frame.stack))
-    | Op.Constant, vs -> `Ok (ref (read_constant vm) :: vs)
+    match (Op.of_byte @@ read_byte frame, frame.stack) with
+    | Op.Return, result :: _ -> `Return result
+    | Op.Constant, vs -> `Ok (ref (read_constant frame) :: vs)
     | Op.Negate, { contents = Float f } :: vs ->
         `Ok (Chunk.float (f *. -1.0) :: vs)
     | Op.Add, { contents = Float b } :: { contents = Float a } :: stack ->
@@ -199,59 +206,59 @@ let rec run (vm : t) : (unit, Err.t) result =
         `Ok stack
     | Op.Pop, _ :: stack -> `Ok stack
     | Op.DefineGlobal, value :: stack ->
-        let name = read_string vm in
+        let name = read_string frame in
         Table.set vm.globals name value;
         `Ok stack
     | Op.GetGlobal, stack -> (
-        let name = read_string vm in
+        let name = read_string frame in
         match Table.find vm.globals name with
         | None ->
-            runtime_error vm
+            runtime_error
               (Printf.sprintf "Undefined variable '%s'." (String_val.get name))
         | Some v -> `Ok (v :: stack))
     | Op.SetGlobal, v :: stack ->
-        let name = read_string vm in
+        let name = read_string frame in
         if not @@ Table.mem vm.globals name then
-          runtime_error vm
+          runtime_error
             (Printf.sprintf "Undefined variable '%s'." (String_val.get name))
         else (
           Table.set vm.globals name v;
           `Ok (v :: stack))
     | Op.GetLocal, stack ->
-        let slot = nth_from_back stack @@ read_byte vm in
+        let slot = nth_from_back stack @@ read_byte frame in
         (* When we get a local, we are allocating a new slot on the stack, so
          * the correct semantics are to create a new reference.
          *)
         let local = !(List.nth_exn stack slot) in
         `Ok (ref local :: stack)
     | Op.SetLocal, (top :: _ as stack) ->
-        let slot = nth_from_back stack @@ read_byte vm in
+        let slot = nth_from_back stack @@ read_byte frame in
         (* When we *set* a local, we are replacing an allocated stack
          * slot, so the correct references are to write to the slot.
          *)
         List.nth_exn stack slot := !top;
         `Ok stack
     | Op.JumpIfFalse, (top :: _ as stack) ->
-        let offset = read_short vm in
-        if Chunk.is_falsey top then vm.frame.ip <- vm.frame.ip + offset;
+        let offset = read_short frame in
+        if Chunk.is_falsey top then frame.ip <- frame.ip + offset;
         `Ok stack
     | Op.Jump, stack ->
-        let offset = read_short vm in
-        vm.frame.ip <- vm.frame.ip + offset;
+        let offset = read_short frame in
+        frame.ip <- frame.ip + offset;
         `Ok stack
     | Op.Loop, stack ->
-        let offset = read_short vm in
-        vm.frame.ip <- vm.frame.ip - offset;
+        let offset = read_short frame in
+        frame.ip <- frame.ip - offset;
         `Ok stack
     | Op.Call, stack ->
-        let arg_count = Char.to_int @@ read_byte vm in
+        let arg_count = Char.to_int @@ read_byte frame in
         (* This is meant to be `peek(n)`, which for a stack is equivalent to
          * `List.nth`
          *)
         let callee = List.nth_exn stack arg_count in
-        call_value vm stack callee arg_count
+        call_value vm frame stack callee arg_count
     | Op.Closure, stack -> (
-        match read_constant vm with
+        match read_constant frame with
         | Chunk.Function function_ ->
             let upvalues =
               Array.create ~len:function_.upvalue_count (ref Chunk.Nil)
@@ -262,12 +269,12 @@ let rec run (vm : t) : (unit, Err.t) result =
             let stack = Chunk.closure { function_; upvalues } :: stack in
             let rec collect_upvals i =
               if i < Array.length upvalues then (
-                let is_local = read_byte vm in
-                let index = read_byte vm in
+                let is_local = read_byte frame in
+                let index = read_byte frame in
                 let uv =
                   match is_local with
                   | '\x00' ->
-                      Array.get vm.frame.closure.upvalues (Char.to_int index)
+                      Array.get frame.closure.upvalues (Char.to_int index)
                   | _ -> List.nth_exn stack @@ nth_from_back stack index
                 in
                 Array.set upvalues i uv;
@@ -277,18 +284,18 @@ let rec run (vm : t) : (unit, Err.t) result =
             collect_upvals 0;
             `Ok stack
         | v ->
-            fatal_runtime_error vm
+            fatal_runtime_error
               ("Cannot make into closure: " ^ Chunk.show_value v))
     | Op.GetUpvalue, stack ->
-        let slot = read_byte vm in
+        let slot = read_byte frame in
         (* When we allocate a new object onto the stack, it should be a
          * separate reference.
          *)
-        let v = !(Array.get vm.frame.closure.upvalues (Char.to_int slot)) in
+        let v = !(Array.get frame.closure.upvalues (Char.to_int slot)) in
         `Ok (ref v :: stack)
     | Op.SetUpvalue, (top :: _ as stack) ->
-        let slot = read_byte vm in
-        let uv = Array.get vm.frame.closure.upvalues (Char.to_int slot) in
+        let slot = read_byte frame in
+        let uv = Array.get frame.closure.upvalues (Char.to_int slot) in
         (* When we *set* an upvalue, we are replacing an allocated stack
          * slot which may be used elsewhere, so the correct semantics
          * are to write to the slot.
@@ -296,13 +303,13 @@ let rec run (vm : t) : (unit, Err.t) result =
         uv := !top;
         `Ok stack
     | Op.Class, stack ->
-        let name = read_string vm in
+        let name = read_string frame in
         `Ok (Chunk.cls { name; methods = Table.make () } :: stack)
     | Op.GetProperty, { contents = Chunk.Instance inst } :: stack -> (
         let bind_method (cls : Chunk.class_) p =
           match Table.find cls.methods p with
           | None ->
-              runtime_error vm
+              runtime_error
                 (Printf.sprintf "Undefined property '%s'." (String_val.get p))
           | Some m ->
               `Ok
@@ -311,25 +318,25 @@ let rec run (vm : t) : (unit, Err.t) result =
                       { method_ = m; receiver = ref (Chunk.Instance inst) })
                 :: stack)
         in
-        let prop = read_string vm in
+        let prop = read_string frame in
         match Table.find inst.fields prop with
         | None -> bind_method inst.class_ prop
         | Some v -> `Ok (ref v :: stack))
     | Op.SetProperty, v :: { contents = Chunk.Instance inst } :: stack ->
-        let prop = read_string vm in
+        let prop = read_string frame in
         Table.set inst.fields prop !v;
         `Ok (v :: stack)
     | ( Op.Method,
         { contents = Chunk.Closure v }
         :: ({ contents = Chunk.Class cls } as class_ref)
         :: rest ) ->
-        let method_name = read_string vm in
+        let method_name = read_string frame in
         Table.set cls.methods method_name v;
         `Ok (class_ref :: rest)
     | Op.Invoke, stack ->
-        let method_ = read_string vm in
-        let arg_count = Char.to_int @@ read_byte vm in
-        invoke vm stack method_ arg_count
+        let method_ = read_string frame in
+        let arg_count = Char.to_int @@ read_byte frame in
+        invoke vm frame stack method_ arg_count
     | ( Op.Inherit,
         { contents = Chunk.Class child }
         :: ({ contents = Chunk.Class parent } as r)
@@ -340,11 +347,11 @@ let rec run (vm : t) : (unit, Err.t) result =
         { contents = Chunk.Class supercls }
         :: { contents = Chunk.Instance inst }
         :: stack ) -> (
-        let method_ = read_string vm in
+        let method_ = read_string frame in
         (* NOTE: This could be combined with the impl for GetProperty *)
         match Table.find supercls.methods method_ with
         | None ->
-            runtime_error vm
+            runtime_error
               (Printf.sprintf "Undefined property '%s'."
                  (String_val.get method_))
         | Some m ->
@@ -354,52 +361,49 @@ let rec run (vm : t) : (unit, Err.t) result =
                     { method_ = m; receiver = ref (Chunk.Instance inst) })
               :: stack))
     | Op.SuperInvoke, { contents = Chunk.Class cls } :: stack -> (
-        let method_ = read_string vm in
-        let arg_count = Char.to_int @@ read_byte vm in
+        let method_ = read_string frame in
+        let arg_count = Char.to_int @@ read_byte frame in
         match Table.find cls.methods method_ with
         | None ->
-            runtime_error vm
+            runtime_error
               (Printf.sprintf "Undefined property '%s'."
                  (String_val.get method_))
-        | Some m_ -> call_closure vm stack m_ arg_count None)
+        | Some m_ -> call_closure vm frame stack m_ arg_count None)
     (* Error cases *)
     | ( ( Op.Negate | Op.Not | Op.Print | Op.Pop | Op.DefineGlobal
         | Op.SetGlobal | Op.SetLocal | Op.JumpIfFalse | Op.Return
         | Op.SetUpvalue | Op.GetProperty ),
         [] ) ->
-        fatal_runtime_error vm "Not enough arguments on stack."
-    | Op.Negate, _ -> runtime_error vm "Operand must be a number."
+        fatal_runtime_error "Not enough arguments on stack."
+    | Op.Negate, _ -> runtime_error "Operand must be a number."
     | ( ( Op.Add | Op.Subtract | Op.Divide | Op.Multiply | Op.Equal | Op.Greater
         | Op.Less | Op.SetProperty | Op.Method ),
         ([] | [ _ ]) ) ->
-        fatal_runtime_error vm "Not enough arguments on stack."
-    | Op.Add, _ ->
-        runtime_error vm "Operands must be two numbers or two strings."
-    | Op.GetProperty, _ -> runtime_error vm "Only instances have properties."
-    | Op.SetProperty, _ -> runtime_error vm "Only instances have fields."
-    | Op.Method, _ ->
-        fatal_runtime_error vm "Unexpected operands for OP_METHOD."
-    | (Op.Less | Op.Greater), _ -> runtime_error vm "Operands must be numbers."
+        fatal_runtime_error "Not enough arguments on stack."
+    | Op.Add, _ -> runtime_error "Operands must be two numbers or two strings."
+    | Op.GetProperty, _ -> runtime_error "Only instances have properties."
+    | Op.SetProperty, _ -> runtime_error "Only instances have fields."
+    | Op.Method, _ -> fatal_runtime_error "Unexpected operands for OP_METHOD."
+    | (Op.Less | Op.Greater), _ -> runtime_error "Operands must be numbers."
     | (Op.Subtract | Op.Divide | Op.Multiply), _ ->
-        runtime_error vm "Operands must be numbers."
-    | Op.Inherit, _ -> runtime_error vm "Superclass must be a class."
-    | Op.GetSuper, _ -> fatal_runtime_error vm "Cannot get super of non-class"
+        runtime_error "Operands must be numbers."
+    | Op.Inherit, _ -> runtime_error "Superclass must be a class."
+    | Op.GetSuper, _ -> fatal_runtime_error "Cannot get super of non-class"
     | Op.SuperInvoke, _ ->
-        fatal_runtime_error vm "Cannot invoke super of non-class "
+        fatal_runtime_error "Cannot invoke super of non-class "
   in
   match res with
   | `Error e -> Error e
-  | `End -> Ok ()
-  | `Ok stack ->
-      vm.frame.stack <- stack;
-      run vm
+  | `Ok stack -> run vm { frame with stack }
+  | `Call new_frame -> run vm new_frame
+  | `Return value -> (
+      match pop_frame vm with
+      | None -> (* End of frames, just return *) Ok ()
+      | Some new_frame ->
+          run vm { new_frame with stack = value :: new_frame.stack })
 
-let interpret_function (function_ : Chunk.function_) (strings : String_arena.t)
-    : (unit, Err.t) result =
-  let clock _ _ =
-    Chunk.float
-      (Int63.to_float (Time_now.nanoseconds_since_unix_epoch ()) /. 1e9)
-  in
+let interpret_function (vm : t) (function_ : Chunk.function_) :
+    (unit, Err.t) result =
   let closure =
     Chunk.
       {
@@ -407,20 +411,28 @@ let interpret_function (function_ : Chunk.function_) (strings : String_arena.t)
         upvalues = Array.create ~len:function_.upvalue_count (ref Chunk.Nil);
       }
   in
+  run vm @@ { closure; stack = [ Chunk.closure closure ]; ip = 0 }
+
+let make () : t =
+  let strings = Table.make () in
   let vm =
     {
       strings;
       init_string = String_arena.get strings "init";
       globals = Table.make ();
-      frame = { closure; ip = 0; stack = [ Chunk.closure closure ] };
       frame_stack = [];
       frame_count = 1;
+      (* Frame count is initialized to 1 to account for the "active" frame *)
     }
   in
+  let clock _ _ =
+    Chunk.float
+      (Int63.to_float (Time_now.nanoseconds_since_unix_epoch ()) /. 1e9)
+  in
   define_native vm "clock" clock;
-  run vm
+  vm
 
-let interpret source =
-  match Compiler.compile source with
+let interpret vm source =
+  match Compiler.compile source vm.strings with
   | Error e -> Error e
-  | Ok (fn, arena) -> interpret_function fn arena
+  | Ok fn -> interpret_function vm fn

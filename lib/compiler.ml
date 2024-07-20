@@ -786,8 +786,8 @@ and declaration p =
   | _ -> statement p);
   if p.panic_mode then synchronize p
 
-let compile (source : string) : (Chunk.function_ * String_arena.t, Err.t) result
-    =
+let compile (source : string) (arena : String_arena.t) :
+    (Chunk.function_, Err.t) result =
   let rec declarations p =
     match p.current.kind with
     | Token.Eof ->
@@ -802,7 +802,7 @@ let compile (source : string) : (Chunk.function_ * String_arena.t, Err.t) result
       scanner = Scanner.of_string source;
       compiler = make_compiler ~arity:0 ~kind:`Script ~name:None ~encloses:None;
       class_compiler = [];
-      arena = Table.make ();
+      arena;
       previous = Token.{ content = ""; kind = Token.Error; line = -1 };
       current = Token.{ content = ""; kind = Token.Error; line = -1 };
       had_error = false;
@@ -812,4 +812,4 @@ let compile (source : string) : (Chunk.function_ * String_arena.t, Err.t) result
   advance p;
   declarations p;
   let output = end_compiler p in
-  if p.had_error then Error Err.Compile else Ok (output, p.arena)
+  if p.had_error then Error Err.Compile else Ok output

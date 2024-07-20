@@ -7,20 +7,26 @@ let run_file filename =
       Printf.eprintf "%s: does not exist" filename;
       exit 127
   | `Yes -> (
-      let f c = Vm.interpret @@ In_channel.input_all c in
+      let f c = Vm.interpret (Vm.make ()) @@ In_channel.input_all c in
       match In_channel.with_file filename ~f with
       | Ok () -> ()
       | Error Err.Compile -> exit 65
       | Error Err.Runtime -> exit 70)
 
-let rec repl () =
+let repl () =
   let open Core in
-  Printf.printf "> ";
-  try
-    Out_channel.(flush stdout);
-    (ignore @@ Vm.interpret @@ In_channel.(input_line_exn stdin));
-    repl ()
-  with End_of_file -> ()
+  let vm = Vm.make () in
+  let rec loop () =
+    try
+      Out_channel.(flush stdout);
+      Printf.printf "> ";
+      Out_channel.(flush stdout);
+      (ignore @@ Vm.interpret vm @@ In_channel.(input_line_exn stdin));
+      Out_channel.(flush stderr);
+      loop ()
+    with End_of_file -> ()
+  in
+  loop ()
 
 let param =
   let open Command.Param in

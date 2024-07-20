@@ -1,3 +1,4 @@
 type t
 
-val interpret : string -> (unit, Err.t) result
+val make : unit -> t
+val interpret : t -> string -> (unit, Err.t) result

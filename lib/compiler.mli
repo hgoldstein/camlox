@@ -1,1 +1,1 @@
-val compile : string -> (Chunk.function_ * String_arena.t, Err.t) result
+val compile : string -> String_arena.t -> (Chunk.function_, Err.t) result
