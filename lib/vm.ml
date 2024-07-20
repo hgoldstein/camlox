@@ -109,44 +109,48 @@ let split_stack stack arg_count new_base =
   let new_stack = loop arg_count stack in
   (!old_stack, new_stack)
 
-let call_closure vm current_frame stack (closure : Chunk.closure) arg_count
+let call_closure vm current_frame (closure : Chunk.closure) arg_count
     (bound_this : Chunk.value option) : cycle_result =
+  let runtime_error = runtime_error vm current_frame in
   if arg_count <> closure.function_.arity then
-    runtime_error vm current_frame
+    runtime_error
     @@ Printf.sprintf "Expected %d arguments but got %d."
          closure.function_.arity arg_count
-  else if vm.frame_count = max_frames then
-    runtime_error vm current_frame "Stack overflow."
+  else if vm.frame_count = max_frames then runtime_error "Stack overflow."
   else
-    let old_stack, new_stack = split_stack stack arg_count bound_this in
+    let old_stack, new_stack =
+      split_stack current_frame.stack arg_count bound_this
+    in
     push_frame vm @@ { current_frame with stack = old_stack };
     `Call { ip = 0; closure; stack = new_stack }
 
-let call_value (vm : t) (current_frame : call_frame) stack callee arg_count =
+let call_value (vm : t) (current_frame : call_frame) callee arg_count =
+  let runtime_error = runtime_error vm current_frame in
   match !callee with
   | Chunk.Native fn ->
-      let new_stack, old_stack = List.split_n stack (arg_count + 1) in
+      let new_stack, old_stack =
+        List.split_n current_frame.stack (arg_count + 1)
+      in
       `Ok (fn arg_count new_stack :: old_stack)
   | Chunk.Closure closure ->
-      call_closure vm current_frame stack closure arg_count None
+      call_closure vm current_frame closure arg_count None
   | Chunk.Class class_ -> (
       let instance = Chunk.Instance { class_; fields = Table.make () } in
       match Table.find class_.methods vm.init_string with
       | None when arg_count = 0 ->
           (* The head of our stack should be the class ptr *)
-          `Ok (ref instance :: List.tl_exn stack)
+          `Ok (ref instance :: List.tl_exn current_frame.stack)
       | None ->
-          runtime_error vm current_frame
+          runtime_error
             (Printf.sprintf "Expected 0 arguments but got %d." arg_count)
       | Some m ->
-          call_closure vm current_frame stack m arg_count (Some (ref instance)))
+          call_closure vm current_frame m arg_count (Some (ref instance)))
   | Chunk.BoundMethod bm ->
-      call_closure vm current_frame stack bm.method_ arg_count
-        (Some bm.receiver)
-  | _ -> runtime_error vm current_frame "Can only call functions and classes."
+      call_closure vm current_frame bm.method_ arg_count (Some bm.receiver)
+  | _ -> runtime_error "Can only call functions and classes."
 
-let invoke (vm : t) current_frame stack method_ arg_count =
-  let callee = List.nth_exn stack arg_count in
+let invoke (vm : t) current_frame method_ arg_count =
+  let callee = List.nth_exn current_frame.stack arg_count in
   match !callee with
   | Chunk.Instance inst -> (
       match Table.find inst.fields method_ with
@@ -155,16 +159,15 @@ let invoke (vm : t) current_frame stack method_ arg_count =
             | [] -> ()
             | hd :: tl -> if i = 0 then hd := m else set (i - 1) tl
           in
-          set arg_count stack;
-          call_value vm current_frame stack (ref m) arg_count
+          set arg_count current_frame.stack;
+          call_value vm current_frame (ref m) arg_count
       | None -> (
           match Table.find inst.class_.methods method_ with
           | None ->
               runtime_error vm current_frame
                 (Printf.sprintf "Undefined property '%s'."
                    (String_val.get method_))
-          | Some m ->
-              call_closure vm current_frame stack m arg_count (Some callee)))
+          | Some m -> call_closure vm current_frame m arg_count (Some callee)))
   | _ -> runtime_error vm current_frame "Only instances have methods."
 
 let rec run (vm : t) (frame : call_frame) : (unit, Err.t) result =
@@ -256,7 +259,7 @@ let rec run (vm : t) (frame : call_frame) : (unit, Err.t) result =
          * `List.nth`
          *)
         let callee = List.nth_exn stack arg_count in
-        call_value vm frame stack callee arg_count
+        call_value vm frame callee arg_count
     | Op.Closure, stack -> (
         match read_constant frame with
         | Chunk.Function function_ ->
@@ -333,10 +336,10 @@ let rec run (vm : t) (frame : call_frame) : (unit, Err.t) result =
         let method_name = read_string frame in
         Table.set cls.methods method_name v;
         `Ok (class_ref :: rest)
-    | Op.Invoke, stack ->
+    | Op.Invoke, _ ->
         let method_ = read_string frame in
         let arg_count = Char.to_int @@ read_byte frame in
-        invoke vm frame stack method_ arg_count
+        invoke vm frame method_ arg_count
     | ( Op.Inherit,
         { contents = Chunk.Class child }
         :: ({ contents = Chunk.Class parent } as r)
@@ -368,7 +371,7 @@ let rec run (vm : t) (frame : call_frame) : (unit, Err.t) result =
             runtime_error
               (Printf.sprintf "Undefined property '%s'."
                  (String_val.get method_))
-        | Some m_ -> call_closure vm frame stack m_ arg_count None)
+        | Some m_ -> call_closure vm { frame with stack } m_ arg_count None)
     (* Error cases *)
     | ( ( Op.Negate | Op.Not | Op.Print | Op.Pop | Op.DefineGlobal
         | Op.SetGlobal | Op.SetLocal | Op.JumpIfFalse | Op.Return
