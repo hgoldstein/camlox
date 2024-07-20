@@ -170,6 +170,16 @@ let invoke (vm : t) current_frame method_ arg_count =
           | Some m -> call_closure vm current_frame m arg_count (Some callee)))
   | _ -> runtime_error vm current_frame "Only instances have methods."
 
+let bind_method (cls : Chunk.class_) method_name instance stack rte =
+  match Table.find cls.methods method_name with
+  | None ->
+      rte
+        (Printf.sprintf "Undefined property '%s'." (String_val.get method_name))
+  | Some method_ ->
+      `Ok
+        (ref (Chunk.BoundMethod { method_; receiver = Chunk.instance instance })
+        :: stack)
+
 let rec run (vm : t) (frame : call_frame) : (unit, Err.t) result =
   if Dbg.on () then (
     print_stack frame;
@@ -309,21 +319,9 @@ let rec run (vm : t) (frame : call_frame) : (unit, Err.t) result =
         let name = read_string frame in
         `Ok (Chunk.cls { name; methods = Table.make () } :: stack)
     | Op.GetProperty, { contents = Chunk.Instance inst } :: stack -> (
-        let bind_method (cls : Chunk.class_) p =
-          match Table.find cls.methods p with
-          | None ->
-              runtime_error
-                (Printf.sprintf "Undefined property '%s'." (String_val.get p))
-          | Some m ->
-              `Ok
-                (ref
-                   (Chunk.BoundMethod
-                      { method_ = m; receiver = ref (Chunk.Instance inst) })
-                :: stack)
-        in
         let prop = read_string frame in
         match Table.find inst.fields prop with
-        | None -> bind_method inst.class_ prop
+        | None -> bind_method inst.class_ prop inst stack runtime_error
         | Some v -> `Ok (ref v :: stack))
     | Op.SetProperty, v :: { contents = Chunk.Instance inst } :: stack ->
         let prop = read_string frame in
@@ -349,20 +347,9 @@ let rec run (vm : t) (frame : call_frame) : (unit, Err.t) result =
     | ( Op.GetSuper,
         { contents = Chunk.Class supercls }
         :: { contents = Chunk.Instance inst }
-        :: stack ) -> (
+        :: stack ) ->
         let method_ = read_string frame in
-        (* NOTE: This could be combined with the impl for GetProperty *)
-        match Table.find supercls.methods method_ with
-        | None ->
-            runtime_error
-              (Printf.sprintf "Undefined property '%s'."
-                 (String_val.get method_))
-        | Some m ->
-            `Ok
-              (ref
-                 (Chunk.BoundMethod
-                    { method_ = m; receiver = ref (Chunk.Instance inst) })
-              :: stack))
+        bind_method supercls method_ inst stack runtime_error
     | Op.SuperInvoke, { contents = Chunk.Class cls } :: stack -> (
         let method_ = read_string frame in
         let arg_count = Char.to_int @@ read_byte frame in
