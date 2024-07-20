@@ -383,7 +383,10 @@ and named_variable p tok can_assign =
   let rec resolve_local : Locals.local list -> int option = function
     | [] -> None
     | l :: ls ->
-        if identifiers_equal tok l.name then Some (List.length ls)
+        if identifiers_equal tok l.name then (
+          if l.depth = -1 then
+            error p "Can't read local variable in its own initializer.";
+          Some (List.length ls))
         else resolve_local ls
   in
   let rec resolve_upvalue compiler =
