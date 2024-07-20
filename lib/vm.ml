@@ -25,7 +25,7 @@ let max_frames = 64
 let read_byte frame =
   let index = frame.ip in
   frame.ip <- frame.ip + 1;
-  Vector.at frame.closure.function_.chunk.code ~index
+  Bytes.get frame.closure.function_.chunk.code index
 
 let read_short frame =
   let hi_byte = read_byte frame in
@@ -34,7 +34,7 @@ let read_short frame =
 
 let read_constant frame =
   let index = Char.to_int @@ read_byte frame in
-  Vector.at frame.closure.function_.chunk.constants ~index
+  Array.get frame.closure.function_.chunk.constants index
 
 let fatal_runtime_error msg =
   Printf.eprintf "FATAL: %s\n" msg;
@@ -64,7 +64,7 @@ let print_stack frame =
 let runtime_error (vm : t) (current_frame : call_frame) msg : cycle_result =
   let print_frame frame =
     Printf.eprintf "[line %d] in "
-      (Vector.at frame.closure.function_.chunk.lines ~index:(frame.ip - 1));
+      (Array.get frame.closure.function_.chunk.lines (frame.ip - 1));
     match frame.closure.function_.name with
     | None -> Printf.eprintf "script\n"
     | Some s -> Printf.eprintf "%s()\n" (String_val.get s)

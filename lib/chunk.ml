@@ -1,10 +1,10 @@
 open Core
 
 type t = {
-  code : char Vector.t;
-  constants : value_ Vector.t;
+  code : Bytes.t;
+  constants : value_ Array.t;
       (* This is a `value_` not a `value` as everything inside ought to be constant, though they may contain references *)
-  lines : int Vector.t;
+  lines : int Array.t;
 }
 
 and function_ = {
@@ -78,27 +78,3 @@ let equal a b =
   | Nil, Nil -> true
   | String a, String b -> phys_equal a b
   | a, b -> phys_equal a b
-
-let make () =
-  {
-    code = Vector.empty ();
-    constants = Vector.empty ();
-    lines = Vector.empty ();
-  }
-
-let write_byte ~chunk ~line ~byte =
-  Vector.append chunk.code ~value:byte;
-  Vector.append chunk.lines ~value:line
-
-let write_op ~chunk ~line ~opcode =
-  Vector.append chunk.code ~value:(Opcode.to_byte opcode);
-  Vector.append chunk.lines ~value:line
-
-(* TODO(hgoldstein): Add some sort of int8 wrapper? *)
-let write_int_unsafe ~chunk ~line ~value =
-  Vector.append chunk.code ~value:(Char.of_int_exn value);
-  Vector.append chunk.lines ~value:line
-
-let add_constant ~chunk ~value =
-  Vector.append chunk.constants ~value;
-  Vector.length chunk.constants - 1

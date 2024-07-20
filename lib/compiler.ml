@@ -4,13 +4,37 @@ type upvalue = { is_local : bool; index : char }
 type class_compiler = { mutable has_superclass : bool }
 type function_kind = [ `Function | `Script | `Method | `Initializer ]
 
+type function_builder = {
+  arity : int;
+  code : char Vector.t;
+  constants : Chunk.value_ Vector.t;
+  lines : int Vector.t;
+  name : String_val.t option;
+  mutable upvalue_count : int;
+}
+
 type compiler = {
-  output : Chunk.function_;
+  output : function_builder;
   local_tracker : Locals.t;
   encloses : compiler option; [@warning "-69"]
   upvalues : upvalue Vector.t;
   kind : function_kind;
 }
+
+let make_function
+    ({ arity; name; upvalue_count; code; constants; lines } : function_builder)
+    : Chunk.function_ =
+  {
+    arity;
+    name;
+    upvalue_count;
+    chunk =
+      {
+        constants = Vector.destroy constants;
+        lines = Vector.destroy lines;
+        code = Bytes.of_char_list @@ Array.to_list @@ Vector.destroy code;
+      };
+  }
 
 let make_compiler ~kind ~encloses ~arity ~name : compiler =
   let local_tracker = Locals.make () in
@@ -31,7 +55,15 @@ let make_compiler ~kind ~encloses ~arity ~name : compiler =
           };
         ]);
   {
-    output = { chunk = Chunk.make (); arity; name; upvalue_count = 0 };
+    output =
+      {
+        arity;
+        name;
+        upvalue_count = 0;
+        code = Vector.empty ();
+        constants = Vector.empty ();
+        lines = Vector.empty ();
+      };
     local_tracker;
     encloses;
     upvalues = Vector.empty ();
@@ -127,12 +159,15 @@ let consume parser k msg : unit =
       ()
   | _ -> error_at_current parser msg
 
-let code_size (parser : parser) =
-  Vector.length parser.compiler.output.chunk.code
+let code_size (parser : parser) = Vector.length parser.compiler.output.code
 
 let emit_byte (parser : parser) byte =
-  Chunk.write_byte ~chunk:parser.compiler.output.chunk ~byte
-    ~line:parser.previous.line
+  Vector.append parser.compiler.output.code ~value:byte;
+  Vector.append parser.compiler.output.lines ~value:parser.previous.line
+
+let add_constant parser value =
+  Vector.append parser.compiler.output.constants ~value;
+  Vector.length parser.compiler.output.constants - 1
 
 let emit_opcode parser opcode = emit_byte parser @@ Op.to_byte opcode
 
@@ -152,13 +187,13 @@ let emit_loop parser loop_start =
 let patch_jump parser offset =
   let jump = code_size parser - offset - 2 in
   if jump > 0xFFFF then error parser "Too much code to jump over.";
-  Vector.set parser.compiler.output.chunk.code ~index:offset
+  Vector.set parser.compiler.output.code ~index:offset
     ~value:(Char.of_int_exn @@ ((jump lsr 8) land 0xFF));
-  Vector.set parser.compiler.output.chunk.code ~index:(offset + 1)
+  Vector.set parser.compiler.output.code ~index:(offset + 1)
     ~value:(Char.of_int_exn @@ (jump land 0xFF))
 
 let make_constant (p : parser) value =
-  let c = Chunk.add_constant ~chunk:p.compiler.output.chunk ~value in
+  let c = add_constant p value in
   if c > 0xFF then (
     error p "Too many constants in one chunk.";
     '\x00')
@@ -241,14 +276,15 @@ let emit_return p =
 
 let end_compiler p =
   emit_return p;
+  let output = make_function p.compiler.output in
   (if Dbg.on () && not p.had_error then
      let name =
        match p.compiler.output.name with
        | None -> "<script>"
        | Some f -> String_val.get f
      in
-     Dbg.disassemble_chunk p.compiler.output.chunk name);
-  p.compiler.output
+     Dbg.disassemble_chunk output.chunk name);
+  output
 
 let begin_scope p = Locals.begin_scope p.compiler.local_tracker
 

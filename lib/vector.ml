@@ -25,3 +25,8 @@ let set_extend vec ~index ~value =
     failwith
       (Printf.sprintf "Index, %d, out of bounds (count = %d)" index vec.count)
   else append vec ~value
+
+let destroy vec =
+  let ret = Array.sub vec.data 0 vec.count in
+  vec.data <- [||];
+  ret

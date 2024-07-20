@@ -6,3 +6,4 @@ val at : 'a t -> index:int -> 'a
 val set : 'a t -> index:int -> value:'a -> unit
 val length : 'a t -> int
 val set_extend : 'a t -> index:int -> value:'a -> unit
+val destroy : 'a t -> 'a Array.t
