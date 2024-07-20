@@ -256,6 +256,10 @@ let rec run (vm : t) : (unit, Err.t) result =
             let upvalues =
               Array.create ~len:function_.upvalue_count (ref Chunk.Nil)
             in
+            (* We have to preinitialize the stack to support local recursive
+             * functions.
+             *)
+            let stack = Chunk.closure { function_; upvalues } :: stack in
             let rec collect_upvals i =
               if i < Array.length upvalues then (
                 let is_local = read_byte vm in
@@ -271,7 +275,7 @@ let rec run (vm : t) : (unit, Err.t) result =
               else ()
             in
             collect_upvals 0;
-            `Ok (Chunk.closure { function_; upvalues } :: stack)
+            `Ok stack
         | v ->
             fatal_runtime_error vm
               ("Cannot make into closure: " ^ Chunk.show_value v))
