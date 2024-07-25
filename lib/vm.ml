@@ -10,15 +10,15 @@ type t = {
   strings : String_arena.t;
   globals : Chunk.value Table.t;
   init_string : String_val.t;
-  mutable frame_stack : call_frame list;
-  mutable frame_count : int;
+  frame_stack : call_frame list;
+  frame_count : int;
 }
 
 type cycle_result =
   [ `Ok of Chunk.value list
   | `Error of Err.t
   | `Return of Chunk.value
-  | `Call of call_frame ]
+  | `Call of call_frame * call_frame ]
 
 let max_frames = 64
 
@@ -75,18 +75,6 @@ let runtime_error (vm : t) (current_frame : call_frame) msg : cycle_result =
   print_frames vm.frame_stack;
   `Error Err.Runtime
 
-let push_frame vm frame =
-  vm.frame_stack <- frame :: vm.frame_stack;
-  vm.frame_count <- vm.frame_count + 1
-
-let pop_frame vm =
-  match vm.frame_stack with
-  | [] -> None
-  | frame :: other_frames ->
-      vm.frame_count <- vm.frame_count - 1;
-      vm.frame_stack <- other_frames;
-      Some frame
-
 (*
  * We need to slice the current stack into three sections:
  *
@@ -121,8 +109,9 @@ let call_closure vm current_frame (closure : Chunk.closure) arg_count
     let old_stack, new_stack =
       split_stack current_frame.stack arg_count bound_this
     in
-    push_frame vm @@ { current_frame with stack = old_stack };
-    `Call { ip = 0; closure; stack = new_stack }
+    `Call
+      ( { ip = 0; closure; stack = new_stack },
+        { current_frame with stack = old_stack } )
 
 let call_value (vm : t) (current_frame : call_frame) callee arg_count =
   let runtime_error = runtime_error vm current_frame in
@@ -385,12 +374,16 @@ let rec run (vm : t) (frame : call_frame) : (unit, Err.t) result =
   match res with
   | `Error e -> Error e
   | `Ok stack -> run vm { frame with stack }
-  | `Call new_frame -> run vm new_frame
+  | `Call (new_frame, old_frame) ->
+      let frame_stack = old_frame :: vm.frame_stack in
+      run { vm with frame_stack; frame_count = vm.frame_count + 1 } new_frame
   | `Return value -> (
-      match pop_frame vm with
-      | None -> (* End of frames, just return *) Ok ()
-      | Some new_frame ->
-          run vm { new_frame with stack = value :: new_frame.stack })
+      match vm.frame_stack with
+      | [] -> Ok () (* End of frames, just return *)
+      | new_frame :: frame_stack ->
+          run
+            { vm with frame_stack; frame_count = vm.frame_count - 1 }
+            { new_frame with stack = value :: new_frame.stack })
 
 let interpret_function (vm : t) (function_ : Chunk.function_) :
     (unit, Err.t) result =
