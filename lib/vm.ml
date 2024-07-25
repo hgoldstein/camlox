@@ -404,7 +404,7 @@ let interpret_function (vm : t) (function_ : Chunk.function_) :
   run vm @@ { closure; stack = [ Chunk.closure closure ]; ip = 0 }
 
 let make () : t =
-  let strings = Table.make () in
+  let strings = String_arena.make () in
   let vm =
     {
       strings;
