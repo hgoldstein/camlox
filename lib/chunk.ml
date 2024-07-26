@@ -11,7 +11,7 @@ and function_ = {
   arity : int;
   chunk : t;
   name : String_val.t option;
-  mutable upvalue_count : int;
+  upvalue_count : int;
 }
 
 and closure = { function_ : function_; upvalues : value Array.t }
