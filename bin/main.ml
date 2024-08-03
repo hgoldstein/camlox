@@ -18,10 +18,10 @@ let repl () =
   let vm = Vm.make () in
   let rec loop () =
     try
-      Out_channel.(flush stdout);
       Printf.printf "> ";
       Out_channel.(flush stdout);
       (ignore @@ Vm.interpret vm @@ In_channel.(input_line_exn stdin));
+      Out_channel.(flush stdout);
       Out_channel.(flush stderr);
       loop ()
     with End_of_file -> ()

@@ -2,4 +2,5 @@
 
 set -xeuo pipefail
 
-flashcard -verbose -cmd "_build/default/bin/main.exe" -ext lox test/
+dune build
+flashcard -cmd "_build/default/bin/main.exe" -ext lox test/

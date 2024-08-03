@@ -778,7 +778,9 @@ and class_declaration p =
   emit_opcode p Op.Class;
   emit_byte p name_const;
   define_variable p name_const;
-  p.class_compiler <- { has_superclass = false } :: p.class_compiler;
+  let cc = { has_superclass = false } in
+  let cc_tail = p.class_compiler in
+  p.class_compiler <- cc :: cc_tail;
   (match p.current.kind with
   | Token.Less ->
       advance p;
@@ -791,7 +793,7 @@ and class_declaration p =
       define_variable p '\x00';
       named_variable p class_name false;
       emit_opcode p Op.Inherit;
-      (List.hd_exn p.class_compiler).has_superclass <- true
+      cc.has_superclass <- true
   | _ -> ());
   named_variable p class_name false;
   consume p Token.LeftBrace "Expect '{' before class body.";
@@ -805,8 +807,8 @@ and class_declaration p =
   collect_methods p;
   consume p Token.RightBrace "Expect '}' after class body.";
   emit_opcode p Op.Pop;
-  if (List.hd_exn p.class_compiler).has_superclass then end_scope p;
-  p.class_compiler <- List.tl_exn p.class_compiler
+  if cc.has_superclass then end_scope p;
+  p.class_compiler <- cc_tail
 
 and declaration p =
   (match p.current.kind with
