@@ -627,13 +627,13 @@ and for_statement (p : parser) =
     match p.current.kind with
     | Token.Semicolon ->
         advance p;
-        -1
+        None
     | _ ->
         expression p;
         consume p Token.Semicolon "Expect ';'.";
         let ret = emit_jump p Op.JumpIfFalse in
         emit_opcode p Op.Pop;
-        ret
+        Some ret
   in
   let loop_start =
     match p.current.kind with
@@ -652,10 +652,9 @@ and for_statement (p : parser) =
   in
   statement p;
   emit_loop p loop_start;
-  (* NOTE: This could be more idiomatic *)
-  if exit_jump <> -1 then (
-    patch_jump p exit_jump;
-    emit_opcode p Op.Pop);
+  Option.iter exit_jump ~f:(fun ej ->
+      patch_jump p ej;
+      emit_opcode p Op.Pop);
   end_scope p
 
 and return_statement p =

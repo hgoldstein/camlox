@@ -36,7 +36,7 @@ type t =
   | GetSuper
   | SuperInvoke
 
-(* NOTE: I don't love using Obj.magic here but it's the easiest way to
+(* I don't love using Obj.magic here but it's the easiest way to
  * have this converstion function w/o codegen or writing things by hand.
  *)
 let to_byte (op : t) : char =

@@ -6,8 +6,9 @@ let grow_capacity (c : int) = if c < 8 then 8 else c * 2
 let append vec ~value =
   let capacity = Array.length vec.data in
   if capacity < vec.count + 1 then (
-    (* NOTE: does passing in `data` here slow things
-     * down? Should we functorize this and require a zero value?
+    (* NOTE: It's kind of sketchy that we pass the same value in here to grow
+     * the array. I think if I wanted to "productionize" this, I might make
+     * this a functor that requires a zero value.
      *)
     let new_data = Array.make (grow_capacity capacity) value in
     Array.blit vec.data 0 new_data 0 capacity;

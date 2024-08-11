@@ -236,7 +236,7 @@ let rec run (vm : t) (frame : call_frame) : (unit, Err.t) result =
     | Op.SetLocal, (top :: _ as stack) ->
         let slot = nth_from_back stack @@ read_byte frame in
         (* When we *set* a local, we are replacing an allocated stack
-         * slot, so the correct references are to write to the slot.
+         * slot, so the correct semantics are to write to the slot.
          *)
         List.nth_exn stack slot := !top;
         `Ok stack
